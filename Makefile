@@ -1,31 +1,32 @@
-.PHONY: compile xref eunit clean doc check make deps
+REBAR = $(shell pwd)/rebar
+REBAR_BUILD_DIR = $(shell pwd)/.rebar-build
+
+.PHONY: compile xref eunit clean distclean doc check make deps
 
 all: compile xref eunit
 
-# for busy typos
-m: all
-ma: all
-mak: all
-make: all
-
-deps:
-	@./rebar get-deps
-	@./rebar check-deps
+deps: $(REBAR)
+	@$(REBAR) update-deps
+	@$(REBAR) get-deps
+	@$(REBAR) check-deps
 
 compile: deps
-	@./rebar compile
+	@$(REBAR) compile
 
 xref: compile
-	@./rebar xref
+	@$(REBAR) xref
 
 eunit: compile
-	@./rebar skip_deps=true eunit
+	@$(REBAR) skip_deps=true eunit
 
 clean:
-	@./rebar clean
+	@$(REBAR) clean
+
+distclean: clean
+	@$(REBAR) delete-deps
 
 doc:
-	@./rebar doc
+	@$(REBAR) skip_deps=true doc
 
 check: compile
 #	@echo "you need ./rebar build-plt before make check"
@@ -36,3 +37,10 @@ check: compile
 crosslang:
 	@echo "do ERL_LIBS=../ before you make crosslang or fail"
 	cd test && make crosslang
+
+$(REBAR):
+	@rm -rf $(REBAR_BUILD_DIR)
+	git clone git://github.com/basho/rebar.git $(REBAR_BUILD_DIR)
+	cd $(REBAR_BUILD_DIR) && ./bootstrap
+	mv $(REBAR_BUILD_DIR)/rebar $(REBAR)
+	@rm -rf $(REBAR_BUILD_DIR)

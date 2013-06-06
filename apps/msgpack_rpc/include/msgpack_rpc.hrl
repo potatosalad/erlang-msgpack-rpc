@@ -40,3 +40,7 @@
 -type server_ref() :: pid() | name() | { name(), node() } | {global, global_name()}.
 
 -endif.
+
+-define(MSGPACK_RPC_REQUEST,  0).
+-define(MSGPACK_RPC_RESPONSE, 1).
+-define(MSGPACK_RPC_NOTIFY,   2).

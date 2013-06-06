@@ -4,3 +4,6 @@ ebin/*.app
 *~
 deps
 doc
+.DS_Store
+erl_crash.dump
+/rebar
