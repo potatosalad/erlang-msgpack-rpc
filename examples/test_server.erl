@@ -13,17 +13,18 @@
 
 % -export([msgpack_rpc_service_init/2]).
 -export([sum/2]).
+-export([echo/1]).
 
 main(_) ->
     Port = 8081,
     ok = application:start(ranch),
-    ok = application:start(crypto),
-    ok = application:start(msgpack_rpc_server),
+    % ok = application:start(crypto),
+    % ok = application:start(msgpack_rpc_server),
 
     io:format(" [*] Running at localhost:~p~n", [Port]),
 
     % msgpack_rpc:start_tcp(test_server, 100, [{port, Port}], [], test_server, []),
-    msgpack_rpc_server:start(test_server, tcp, test_server, [{port, Port}]),
+    msgpack_rpc_server:start(test_server, tcp, undefined, [{port, Port}]),
     shell:start(),
 
     receive
@@ -59,5 +60,11 @@ main(_) ->
 %     ok.
 
 sum(X, Y) ->
-    io:format("~p + ~p = ~p~n", [X, Y, X + Y]),
+    io:format("[sum] ~p + ~p = ~p~n", [X, Y, X + Y]),
+    % timer:sleep(Y * 10),
+    timer:sleep(2000),
     X + Y.
+
+echo(X) ->
+    io:format("[echo] ~p~n", [X]),
+    X.

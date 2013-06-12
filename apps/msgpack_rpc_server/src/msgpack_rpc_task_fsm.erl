@@ -7,19 +7,19 @@
 %%% Created :  31 May 2013 by Andrew Bennett <andrew@pagodabox.com>
 %%%-------------------------------------------------------------------
 
--module(msgpack_rpc_request_fsm).
+-module(msgpack_rpc_task_fsm).
 -behaviour(gen_fsm).
 
+-include("msgpack_rpc_server.hrl").
+
 %% API
--export([
-    start_link/1,
-    start/6,
-    execute/2,
-    result/2,
-    error/2,
-    response/3,
-    finalize/1
-]).
+-export([start/1,
+         start_link/1,
+         execute/2,
+         respond/2,
+         shutdown/1,
+         sync_execute/2,
+         sync_respond/2]).
 
 %% gen_fsm callbacks
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3,
@@ -28,41 +28,40 @@
 -export([waiting/2, waiting/3, executing/2, executing/3,
          responding/2, responding/3, finalized/2, finalized/3]).
 
+%% Internal functions
+-export([job_runner/3]).
+
+-type job() :: function() | {function(), [any()]} | {module(), atom(), [any()]}.
+-export_type([job/0]).
+
 -record(state, {
-    req     = undefined :: undefined | msgpack_rpc_request:req(),
-    task    = undefined :: undefined | function() | {function(), [any()]} | {module(), atom(), [any()]},
-    error   = nil       :: nil | any(),
-    result  = nil       :: nil | any()
+    task    = undefined :: undefined | msgpack_rpc:task(),
+    job     = undefined :: undefined | job(),
+    job_pid = undefined :: undefined | pid(),
+    job_ref = undefined :: undefined | reference(),
+    queue   = undefined :: undefined | queue()
 }).
 
-start_link(Req) ->
-    gen_fsm:start_link(?MODULE, [Req], []).
+start(Task) ->
+    msgpack_rpc_task_fsm_sup:start([Task]).
 
-start(MsgId, Method, Params, Socket, Transport, MsgpackOpts) ->
-    Req = msgpack_rpc_request:new(MsgId, Method, Params, Socket, Transport, MsgpackOpts),
-    case msgpack_rpc_request_fsm_sup:start([Req]) of
-        {ok, FsmRef} ->
-            {ok, msgpack_rpc_request:set([{fsm_ref, FsmRef}], Req)};
-        {ok, FsmRef, _} ->
-            {ok, msgpack_rpc_request:set([{fsm_ref, FsmRef}], Req)};
-        Other ->
-            Other
-    end.
+start_link(Task) ->
+    gen_fsm:start_link(?MODULE, [Task], []).
 
-execute(Task, FsmRef) ->
-    gen_fsm:send_event(FsmRef, {execute, Task}).
+execute(Pid, Job) ->
+    gen_fsm:send_event(Pid, {execute, Job}).
 
-result(Result, FsmRef) ->
-    gen_fsm:send_event(FsmRef, {result, Result}).
+respond(Pid, Resp) ->
+    gen_fsm:send_event(Pid, {respond, Resp}).
 
-error(Error, FsmRef) ->
-    gen_fsm:send_event(FsmRef, {error, Error}).
+shutdown(Pid) ->
+    gen_fsm:send_event(Pid, shutdown).
 
-response(Error, Result, FsmRef) ->
-    gen_fsm:send_event(FsmRef, {response, Error, Result}).
+sync_execute(Pid, Job) ->
+    gen_fsm:sync_send_event(Pid, {execute, Job}).
 
-finalize(FsmRef) ->
-    gen_fsm:send_all_state_event(FsmRef, finalize).
+sync_respond(Pid, Resp) ->
+    gen_fsm:sync_send_event(Pid, {respond, Resp}).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -74,8 +73,8 @@ finalize(FsmRef) ->
 %%     {stop, Reason :: term()} | ignore
 %% @end
 %%--------------------------------------------------------------------
-init([Request]) ->
-    State = #state{req=Request},
+init([Task]) ->
+    State = #state{task=Task, queue=queue:new()},
     {ok, waiting, State}.
 
 %%--------------------------------------------------------------------
@@ -89,10 +88,6 @@ init([Request]) ->
 %%     {stop, Reason :: term(), NewStateData :: term()}
 %% @end
 %%--------------------------------------------------------------------
-handle_event(finalize, finalized, State) ->
-    {stop, normal, State};
-handle_event(finalize, StateName, State) ->
-    {next_state, StateName, State, 0};
 handle_event(_Event, _StateName, StateData) ->
     {stop, badmsg, StateData}.
 
@@ -124,7 +119,11 @@ handle_sync_event(_Event, _From, _StateName, StateData) ->
 %%     {stop, Reason :: normal | term(), NewStateData :: term()}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(_Info, _StateName, StateData) ->
+handle_info({'DOWN', JobRef, process, JobPid, normal}, StateName, StateData=#state{job_pid=JobPid, job_ref=JobRef}) ->
+    io:format("[~p] INFO: Job completed normally~n", [?MODULE]),
+    {next_state, StateName, StateData, 0};
+handle_info(Info, StateName, StateData) ->
+    io:format("[~p] BAD INFO: ~p ~p ~p~n", [?MODULE, Info, StateName, StateData]),
     {stop, badmsg, StateData}.
 
 %%--------------------------------------------------------------------
@@ -161,8 +160,13 @@ code_change(_OldVsn, StateName, StateData, _Extra) ->
 %%     {stop, Reason :: normal | shutdown | term(), NewStateData :: term()}
 %% @end
 %%--------------------------------------------------------------------
-waiting({execute, Task}, State) ->
-    {next_state, executing, State#state{task=Task}, 0};
+waiting({execute, Job}, State) ->
+    State2 = State#state{job=Job},
+    {JobPid, JobRef} = spawn_job(Job, State2),
+    {next_state, executing, State2#state{job_pid=JobPid, job_ref=JobRef}};
+waiting({respond, Resp}, State=#state{task=#msgpack_rpc_task{type=request}}) ->
+    State2 = prepare_response(Resp, State),
+    {next_state, responding, State2, 0};
 waiting(_Event, State) ->
     {next_state, waiting, State}.
 
@@ -179,6 +183,14 @@ waiting(_Event, State) ->
 %%     {stop, Reason :: term(), NewStateData :: term()}
 %% @end
 %%--------------------------------------------------------------------
+waiting({execute, Job}, From, State=#state{queue=Queue}) ->
+    State2 = State#state{job=Job, queue=queue:in(From, Queue)},
+    {JobPid, JobRef} = spawn_job(Job, State2),
+    {next_state, executing, State2#state{job_pid=JobPid, job_ref=JobRef}};
+waiting({respond, Resp}, From, State=#state{task=#msgpack_rpc_task{type=request}}) ->
+    State2 = prepare_response(Resp, State),
+    Queue = State2#state.queue,
+    {next_state, responding, State2#state{queue=queue:in(From, Queue)}, 0};
 waiting(_Event, _From, State) ->
     {next_state, waiting, State}.
 
@@ -192,24 +204,12 @@ waiting(_Event, _From, State) ->
 %%     {stop, Reason :: normal | shutdown | term(), NewStateData :: term()}
 %% @end
 %%--------------------------------------------------------------------
-executing(timeout, State=#state{req=Req, task=Task}) ->
-    try run(Task) of
-        {ok, _Req2} ->
-            {next_state, responding, State};
-        {result, Result, _Req2} ->
-            {next_state, responding, State#state{result=Result}, 0};
-        {error, Error, _Req2} ->
-            {next_state, responding, State#state{error=Error}, 0};
-        {response, Error, Result, _Req2} ->
-            {next_state, responding, State#state{error=Error, result=Result}, 0}
-    catch Class:Reason ->
-        error_logger:warning_msg(
-            "** ~p task ~p non-fatal error in ~p/~p~n"
-            "   for the reason ~p:~p~n** Request was ~p~n"
-            "** State was ~p~n** Stacktrace: ~p~n~n",
-            [?MODULE, Task, executing, 2, Class, Reason, Req, State, erlang:get_stacktrace()]),
-        {next_state, responding, State#state{error=Reason}, 0}
-    end;
+executing(shutdown, State=#state{task=#msgpack_rpc_task{type=notify}}) ->
+    State2 = process_queue(ok, State),
+    {next_state, finalized, State2, 0};
+executing({respond, Resp}, State=#state{task=#msgpack_rpc_task{type=request}}) ->
+    State2 = prepare_response(Resp, State),
+    {next_state, responding, State2, 0};
 executing(_Event, State) ->
     {next_state, executing, State}.
 
@@ -226,6 +226,13 @@ executing(_Event, State) ->
 %%     {stop, Reason :: term(), NewStateData :: term()}
 %% @end
 %%--------------------------------------------------------------------
+executing(shutdown, _From, State=#state{task=#msgpack_rpc_task{type=notify}}) ->
+    State2 = process_queue(ok, State),
+    {reply, ok, finalized, State2, 0};
+executing({respond, Resp}, From, State=#state{task=#msgpack_rpc_task{type=request}}) ->
+    State2 = prepare_response(Resp, State),
+    Queue = State2#state.queue,
+    {next_state, responding, State2#state{queue=queue:in(From, Queue)}, 0};
 executing(_Event, _From, State) ->
     {next_state, executing, State}.
 
@@ -239,18 +246,9 @@ executing(_Event, _From, State) ->
 %%     {stop, Reason :: normal | shutdown | term(), NewStateData :: term()}
 %% @end
 %%--------------------------------------------------------------------
-responding(timeout, State=#state{error=Error, result=Result, req=Req}) ->
-    msgpack_rpc_request:reply(Error, Result, Req),
-    {next_state, finalized, State, 0};
-responding({response, Error, Result}, State=#state{req=Req}) ->
-    msgpack_rpc_request:reply(Error, Result, Req),
-    {next_state, finalized, State#state{error=Error, result=Result}, 0};
-responding({result, Result}, State=#state{error=Error, req=Req}) ->
-    msgpack_rpc_request:reply(Error, Result, Req),
-    {next_state, finalized, State#state{result=Result}, 0};
-responding({error, Error}, State=#state{result=Result, req=Req}) ->
-    msgpack_rpc_request:reply(Error, Result, Req),
-    {next_state, finalized, State#state{error=Error}, 0};
+responding(timeout, State) ->
+    State2 = process_response(State),
+    {next_state, finalized, State2, 0};
 responding(_Event, State) ->
     {next_state, responding, State}.
 
@@ -301,9 +299,74 @@ finalized(_Event, State) ->
 finalized(_Event, _From, State) ->
     {next_state, finalized, State}.
 
-run({Module, Function, Args}) ->
+%%%-------------------------------------------------------------------
+%%% Internal functions
+%%%-------------------------------------------------------------------
+
+job_runner(#state{task=#msgpack_rpc_task{message=Message, type=notify}}, Job, Pid) ->
+    try
+        exec_job(Job)
+    catch
+        Class:Reason ->
+            error_logger:error_msg(
+                "** ~p job ~p terminating in ~p/~p~n"
+                "   for the reason ~p:~p~n** Message was ~p~n"
+                "** Stacktrace: ~p~n~n",
+                [?MODULE, Job, job_runner, 3, Class, Reason, Message, erlang:get_stacktrace()])
+    after
+        shutdown(Pid)
+    end;
+job_runner(#state{task=#msgpack_rpc_task{message=Message, type=request}}, Job, Pid) ->
+    try exec_job(Job) of
+        {respond, Resp} ->
+            respond(Pid, Resp);
+        _ ->
+            ok
+    catch
+        Class:Reason ->
+            error_logger:error_msg(
+                "** ~p job ~p terminating in ~p/~p~n"
+                "   for the reason ~p:~p~n** Message was ~p~n"
+                "** Stacktrace: ~p~n~n",
+                [?MODULE, Job, job_runner, 3, Class, Reason, Message, erlang:get_stacktrace()]),
+            respond(Pid, {error, Reason})
+    end.
+
+prepare_response({error, Error}, State=#state{task=Task=#msgpack_rpc_task{type=request, message=Message,
+        options=#msgpack_rpc_options{error_encoder=ErrorEncoder}}}) ->
+    {MsgId, _} = msgpack_rpc_request:msg_id(Message),
+    io:format("ErrorEncoder: ~p~nError: ~p~nVal: ~p~n", [ErrorEncoder, Error, ErrorEncoder(Error)]),
+    Response = msgpack_rpc_response:new(Message, MsgId, ErrorEncoder(Error), nil),
+    process_queue(Response, State#state{task=Task#msgpack_rpc_task{response=Response}});
+prepare_response({result, Result}, State=#state{task=Task=#msgpack_rpc_task{type=request, message=Message,
+        options=#msgpack_rpc_options{error_encoder=ErrorEncoder}}}) ->
+    {MsgId, _} = msgpack_rpc_request:msg_id(Message),
+    Response = msgpack_rpc_response:new(Message, MsgId, ErrorEncoder(nil), Result),
+    process_queue(Response, State#state{task=Task#msgpack_rpc_task{response=Response}}).
+
+process_response(State=#state{task=#msgpack_rpc_task{response=Response, socket=Socket,
+        transport=Transport, options=#msgpack_rpc_options{msgpack_packer=Packer}}}) ->
+    Object = msgpack_rpc_response:to_msgpack_object(Response),
+    Packet = Packer(Object),
+    io:format("AFTER RESPONDING: ~p ~p~n", [Response, Packet]),
+    Transport:send(Socket, Packet),
+    process_queue(Response, State).
+
+process_queue(Reply, State=#state{queue=Queue}) ->
+    case queue:out(Queue) of
+        {{value, From}, Queue2} ->
+            gen_fsm:reply(From, Reply),
+            process_queue(Reply, State#state{queue=Queue2});
+        {empty, Queue} ->
+            State
+    end.
+
+exec_job({Module, Function, Args}) ->
     Module:Function(Args);
-run({Task, Args}) when is_function(Task) ->
-    Task(Args);
-run(Task) when is_function(Task) ->
-    Task().
+exec_job({Job, Args}) when is_function(Job) ->
+    Job(Args);
+exec_job(Job) when is_function(Job) ->
+    Job().
+
+spawn_job(Job, State) ->
+    erlang:spawn_monitor(?MODULE, job_runner, [State, Job, self()]).

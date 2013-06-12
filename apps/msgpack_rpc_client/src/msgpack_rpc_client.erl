@@ -9,53 +9,74 @@
 -module(msgpack_rpc_client).
 
 -include("msgpack_rpc_client.hrl").
--include_lib("eunit/include/eunit.hrl").
--export([start_link/4, connect/4, close/1,
-     call/3, call_async/3, join/2, notify/3]).
 
--type type()   :: tcp. % | udp | sctp.
--type method() :: atom().
--type argv()   :: [msgpack:msgpack_term()].
--type callid() :: non_neg_integer().
+%% API
+-export([connect/4,
+         connection/1,
+         close/1,
+         call/3,
+         call_async/3,
+         join/2,
+         notify/3]).
 
--spec start_link(type(), inet:ip_address(), inet:port_number(), [proplists:property()]) ->
-            {ok, pid()} | {error, any()}.
-start_link(tcp, IP, Port, Opts)->
-    msgpack_rpc_connection:start_link([{transport, ranch_tcp},
-                       {ipaddr, IP}, {port, Port}] ++ Opts);
-start_link(ssl, IP, Port, Opts)->
-    msgpack_rpc_connection:start_link([{transport, ranch_ssl},
-                       {ipaddr, IP}, {port, Port}] ++ Opts);
+%%%===================================================================
+%%% API
+%%%===================================================================
 
-start_link(_Type, _IP, _Port, _Opts)->
-    {error, no_transport}.
-
--spec connect(type(), inet:ip_address(), inet:port_number(), [proplists:property()]) ->
-             {ok, pid()} | {error, any()}.
-connect(Type, IP, Port, Opts)->
-    start_link(Type, IP, Port, Opts).
-
--spec close(pid())-> ok.
-close(Pid)->
-    gen_server:call(Pid, close).
-
--spec call(pid(), method(), argv()) -> {ok, msgpack:msgpack_term()} | {error, any()}.
-call(Pid, Method, Argv)->
-    case call_async(Pid, Method, Argv) of
-    {ok, CallID} -> join(Pid, CallID);
-    Error -> Error
+connect(Transport, Address, Port, Opts) ->
+    case msgpack_rpc_connection:start_link(Transport, Address, Port, Opts) of
+        {ok, Pid} ->
+            {ok, #msgpack_rpc_client{connection=Pid}};
+        Error ->
+            Error
     end.
 
--spec call_async(pid(), method(), argv()) -> {ok, callid()} | {error, any()}.
-call_async(Pid, Method, Argv)->
-    BinMethod = atom_to_binary(Method, latin1),
-    gen_server:call(Pid, {call_async, BinMethod, Argv}).
+connection(_Client=#msgpack_rpc_client{connection=Pid}) ->
+    connection(Pid);
+connection(Pid) when is_pid(Pid) ->
+    Pid.
 
--spec join(pid(), callid()) -> {ok, msgpack:msgpack_term()} | {error, any()}.
-join(Pid, CallID)->
-    gen_server:call(Pid, {join, CallID}).
+close(_Client=#msgpack_rpc_client{connection=Pid}) ->
+    close(Pid);
+close(Pid) when is_pid(Pid) ->
+    msgpack_rpc_connection:stop(Pid).
 
--spec notify(pid(), method(), argv()) -> ok. % never fails
-notify(Pid, Method, Argv)->
-    BinMethod = atom_to_binary(Method, latin1),
-    gen_server:cast(Pid, {notify, BinMethod, Argv}).
+call(Method, Params, _Client=#msgpack_rpc_client{connection=Pid}) ->
+    call(Pid, Method, Params);
+call(Pid, Method, Params) when is_pid(Pid) ->
+    case call_async(Pid, Method, Params) of
+        {ok, Req} ->
+            join(Pid, Req);
+        Error ->
+            Error
+    end.
+
+call_async(Method, Params, _Client=#msgpack_rpc_client{connection=Pid}) ->
+    call_async(Pid, Method, Params);
+call_async(Pid, Method, Params) when is_pid(Pid) ->
+    msgpack_rpc_connection:request(Pid, msgpack_rpc:method_to_binary(Method), Params).
+
+join(Req, _Client=#msgpack_rpc_client{connection=Pid}) ->
+    join(Pid, Req);
+join(Pid, Req) when is_pid(Pid) ->
+    case msgpack_rpc_connection:join(Pid, Req) of
+        {ok, Response} ->
+            case msgpack_rpc_response:get([error, result], Response) of
+                [nil, Result] ->
+                    {ok, Result};
+                [Error, nil] ->
+                    {error, Error}
+            end;
+        JoinError ->
+            JoinError
+    end.
+
+notify(Method, Params, _Client=#msgpack_rpc_client{connection=Pid}) ->
+    notify(Pid, Method, Params);
+notify(Pid, Method, Params) when is_pid(Pid) ->
+    case msgpack_rpc_connection:notify(Pid, msgpack_rpc:method_to_binary(Method), Params) of
+        {ok, _} ->
+            ok;
+        Error ->
+            Error
+    end.

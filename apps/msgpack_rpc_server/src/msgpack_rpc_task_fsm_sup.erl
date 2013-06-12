@@ -7,7 +7,7 @@
 %%% Created :  31 May 2013 by Andrew Bennett <andrew@pagodabox.com>
 %%%-------------------------------------------------------------------
 
--module(msgpack_rpc_notify_fsm_sup).
+-module(msgpack_rpc_task_fsm_sup).
 -behaviour(supervisor).
 
 %% API
@@ -35,6 +35,7 @@ start_link() ->
 %%====================================================================
 
 init([]) ->
-    NotifyFsm = {undefined, {msgpack_rpc_notify_fsm, start_link, []},
-        temporary, 5000, worker, [msgpack_rpc_notify_fsm]},
-    {ok, {{simple_one_for_one, 10, 10}, [NotifyFsm]}}.
+    TaskFsm = {undefined,
+        {msgpack_rpc_task_fsm, start_link, []},
+        temporary, infinity, worker, [msgpack_rpc_task_fsm]},
+    {ok, {{simple_one_for_one, 10, 10}, [TaskFsm]}}.

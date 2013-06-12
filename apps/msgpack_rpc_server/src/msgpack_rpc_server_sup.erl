@@ -31,10 +31,7 @@ start_link() ->
 %%====================================================================
 
 init(_Args) ->
-    NotifyFSMs = {msgpack_rpc_notify_fsm_sup,
-        {msgpack_rpc_notify_fsm_sup, start_link, []},
-        permanent, infinity, supervisor, [msgpack_rpc_notify_fsm_sup]},
-    RequestFSMs = {msgpack_rpc_request_fsm_sup,
-        {msgpack_rpc_request_fsm_sup, start_link, []},
-        permanent, infinity, supervisor, [msgpack_rpc_request_fsm_sup]},
-    {ok, {{one_for_one, 5, 10}, [NotifyFSMs, RequestFSMs]}}.
+    TaskFSMs = {msgpack_rpc_task_fsm_sup,
+        {msgpack_rpc_task_fsm_sup, start_link, []},
+        permanent, infinity, supervisor, [msgpack_rpc_task_fsm_sup]},
+    {ok, {{one_for_one, 5, 10}, [TaskFSMs]}}.

@@ -19,26 +19,25 @@
 -export([start_link/4]).
 
 %% Internal.
--export([init/4]).
+-export([init/1]).
 % -export([parse_request/2]).
 -export([loop/3]).
 
--export([known_error_to_binary/1]).
--export([binary_to_known_error/1]).
-
 -record(state, {
-    socket       = undefined :: undefined | inet:socket(),
-    transport    = undefined :: undefined | module(),
-    middlewares  = undefined :: undefined | [module()],
-    env          = undefined :: undefined | msgpack_rpc_middleware:env(),
-    % protocol     = undefined :: undefined | pid(),
-    % handler      = undefined :: undefined | module(),
-    % handler_opts = undefined :: any(),
-    msgpack_opts = undefined :: undefined | any(),
-    messages     = undefined :: undefined | {atom(), atom(), atom()},
-    timeout      = undefined :: undefined | timeout(),
-    timeout_ref  = undefined :: undefined | reference(),
-    hibernate    = false     :: boolean()
+    %% Settings
+    socket    = undefined :: undefined | inet:socket(),
+    transport = undefined :: undefined | module(),
+    opts      = undefined :: undefined | [proplists:property()],
+
+    %% Options
+    options  = #msgpack_rpc_options{} :: msgpack_rpc:options(),
+    dispatch = undefined :: undefined | module(),
+    timeout  = undefined :: undefined | timeout(),
+
+    %% Other
+    hibernate   = false     :: boolean(),
+    messages    = undefined :: undefined | {atom(), atom(), atom()},
+    timeout_ref = undefined :: undefined | reference()
 }).
 
 %% ranch_protocol callbacks
@@ -47,7 +46,8 @@
 % -spec start_link(ranch:ref(), inet:socket(), module(), [any(), module(), any()])
 %     -> {ok, pid()}.
 start_link(Ref, Socket, Transport, Opts) ->
-    Pid = spawn_link(?MODULE, init, [Ref, Socket, Transport, Opts]),
+    ranch:require([ranch, crypto, msgpack_rpc_server]),
+    Pid = spawn_link(?MODULE, init, [[Ref, Socket, Transport, Opts]]),
     {ok, Pid}.
 
 %% Internal.
@@ -60,92 +60,104 @@ get_value(Key, Opts, Default) ->
     _ -> Default
   end.
 
-init(Ref, Socket, Transport, Opts) ->
-    Env = [{listener, Ref} | get_value(env, Opts, [])],
-    Middlewares = get_value(middlewares, Opts, [msgpack_rpc_handler]),
-    MsgpackOpts = get_value(msgpack_opts, Opts, [jiffy]),
-    Timeout = get_value(timeout, Opts, infinity),
+init([Ref, Socket, Transport, Opts]) ->
+    {ProtoOpts, Opts2} = msgpack_rpc:partition_options(Opts, [dispatcher, handler, handler_opts, timeout]),
+    Dispatch = get_value(dispatcher, ProtoOpts, msgpack_rpc_dispatcher),
+    Handler = get_value(handler, ProtoOpts, undefined),
+    HandlerOpts = get_value(handler_opts, ProtoOpts, []),
+    Timeout = get_value(timeout, ProtoOpts, infinity),
+    {ok, Options} = msgpack_rpc_options:from_options(Opts2),
     ok = ranch:accept_ack(Ref),
-    middleware_init(#state{
-        socket       = Socket,
-        transport    = Transport,
-        middlewares  = Middlewares,
-        msgpack_opts = MsgpackOpts,
-        env          = Env,
-        timeout      = Timeout}).
+    dispatcher_init(#state{socket=Socket, transport=Transport, opts=Opts,
+        options=Options, dispatch=Dispatch, timeout=Timeout,
+        messages=Transport:messages()}, Handler, HandlerOpts).
 
-middleware_init(State=#state{env=Env, middlewares=Middlewares}) ->
-    middleware_init(State, Env, Middlewares).
-
-middleware_init(State=#state{transport=Transport}, Env, []) ->
-    State2 = loop_timeout(State),
-    before_loop(State2#state{messages=Transport:messages()}, Env, <<>>);
-middleware_init(State=#state{transport=Transport}, Env, [Middleware | Tail]) ->
-    case Middleware:init({Transport:name(), msgpack_rpc}, Env) of
-        {ok, Env2} ->
-            middleware_init(State, Env2, Tail);
-        {ok, Env2, hibernate} ->
-            middleware_init(State#state{hibernate=true}, Env2, Tail);
-        {ok, Env2, Timeout} ->
-            middleware_init(State#state{timeout=Timeout}, Env2, Tail);
-        {ok, Env2, Timeout, hibernate} ->
-            middleware_init(State#state{hibernate=true, timeout=Timeout}, Env2, Tail);
-        {shutdown, Env2} ->
-            middleware_terminate(ok, Env2, State)
+dispatcher_init(State=#state{transport=Transport, dispatch=Dispatch}, Handler, HandlerOpts) ->
+    try Dispatch:dispatch_init({Transport:name(), msgpack_rpc}, Handler, HandlerOpts) of
+        {ok, DispatchState} ->
+            before_loop(State, DispatchState, <<>>);
+        {ok, DispatchState, hibernate} ->
+            before_loop(State#state{hibernate=true}, DispatchState, <<>>);
+        {ok, DispatchState, Timeout} ->
+            before_loop(State#state{timeout=Timeout}, DispatchState, <<>>);
+        {ok, DispatchState, Timeout, hibernate} ->
+            before_loop(State#state{timeout=Timeout, hibernate=true}, DispatchState, <<>>);
+        {shutdown, Reason, DispatchState} ->
+            dispatcher_terminate(Reason, DispatchState, undefined, State)
+    catch
+        Class:Reason ->
+            error_logger:error_msg(
+                "** ~p ~p terminating in ~p/~p~n"
+                "   for the reason ~p:~p~n** Options were ~p~n"
+                "** Stacktrace: ~p~n~n",
+                [?MODULE, self(), dispatcher_init, 1, Class, Reason, State#state.options, erlang:get_stacktrace()]),
+            terminate(Reason, undefined)
     end.
 
-middleware_execute(State=#state{middlewares=Middlewares}, Env, Data, Callback, Req, NextState) ->
-    middleware_execute(State, Env, Data, Callback, Req, NextState, Middlewares).
-
-middleware_execute(State, Env, Data, _Callback, Req, NextState, []) ->
-    Req:finalize(),
-    State2 = loop_timeout(State),
-    NextState(State2, Env, Data);
-middleware_execute(State, Env, Data, Callback, Req, NextState, [Middleware | Tail]) ->
-    case Middleware:Callback(Req, Env) of
-        {ok, Req2, Env2} ->
-            middleware_execute(State, Env2, Data, Callback, Req2, NextState, Tail);
-        {ok, Req2, Env2, hibernate} ->
-            middleware_execute(State#state{hibernate=true}, Env2, Data, Callback, Req2, NextState, Tail);
-        {ok, Req2, Env2, Timeout} ->
-            middleware_execute(State#state{timeout=Timeout}, Env2, Data, Callback, Req2, NextState, Tail);
-        {ok, Req2, Env2, Timeout, hibernate} ->
-            middleware_execute(State#state{hibernate=true, timeout=Timeout}, Env2, Data, Callback, Req2, NextState, Tail);
-        {shutdown, Req2, Env2} ->
-            middleware_terminate(ok, Req2, Env2, State)
+dispatcher_task(State=#state{dispatch=Dispatch}, DispatchState, Data, Callback, Task, NextState) ->
+    try Dispatch:Callback(Task, DispatchState) of
+        {ok, _Task2, DispatchState2} ->
+            State2 = loop_timeout(State),
+            NextState(State2, DispatchState2, Data);
+        {ok, _Task2, DispatchState2, hibernate} ->
+            State2 = loop_timeout(State),
+            NextState(State2#state{hibernate=true}, DispatchState2, Data);
+        {ok, _Task2, DispatchState2, Timeout} ->
+            State2 = loop_timeout(State),
+            NextState(State2#state{timeout=Timeout}, DispatchState2, Data);
+        {ok, _Task2, DispatchState2, Timeout, hibernate} ->
+            State2 = loop_timeout(State),
+            NextState(State2#state{timeout=Timeout, hibernate=true}, DispatchState2, Data);
+        {shutdown, Reason, Task2, DispatchState2} ->
+            dispatcher_terminate(State, DispatchState2, Task2, Reason)
+    catch
+        Class:Reason ->
+            error_logger:error_msg(
+                "** ~p ~p terminating in ~p/~p~n"
+                "   for the reason ~p:~p~n** Options were ~p~n"
+                "** Stacktrace: ~p~n~n",
+                [?MODULE, self(), dispatcher_task, 6, Class, Reason, State#state.options, erlang:get_stacktrace()]),
+            dispatcher_terminate(State, DispatchState, Task, Reason)
     end.
 
-middleware_info(State=#state{middlewares=Middlewares}, Env, Data, Callback, Info, NextState) ->
-    middleware_info(State, Env, Data, Callback, Info, NextState, Middlewares).
-
-middleware_info(State, Env, Data, _Callback, _Info, NextState, []) ->
-    State2 = loop_timeout(State),
-    NextState(State2, Env, Data);
-middleware_info(State, Env, Data, Callback, Info, NextState, [Middleware | Tail]) ->
-    case Middleware:Callback(Info, Env) of
-        {ok, Env2} ->
-            middleware_info(State, Env2, Data, Callback, Info, NextState, Tail);
-        {ok, Env2, hibernate} ->
-            middleware_info(State#state{hibernate=true}, Env2, Data, Callback, Info, NextState, Tail);
-        {ok, Env2, Timeout} ->
-            middleware_info(State#state{timeout=Timeout}, Env2, Data, Callback, Info, NextState, Tail);
-        {ok, Env2, Timeout, hibernate} ->
-            middleware_info(State#state{hibernate=true, timeout=Timeout}, Env2, Data, Callback, Info, NextState, Tail);
-        {shutdown, Env2} ->
-            middleware_terminate(ok, Env2, State)
+dispatcher_info(State=#state{dispatch=Dispatch}, DispatchState, Data, Callback, Info, NextState) ->
+    try Dispatch:Callback(Info, DispatchState) of
+        {ok, DispatchState2} ->
+            State2 = loop_timeout(State),
+            NextState(State2, DispatchState2, Data);
+        {ok, DispatchState2, hibernate} ->
+            State2 = loop_timeout(State),
+            NextState(State2#state{hibernate=true}, DispatchState2, Data);
+        {ok, DispatchState2, Timeout} ->
+            State2 = loop_timeout(State),
+            NextState(State2#state{timeout=Timeout}, DispatchState2, Data);
+        {ok, DispatchState2, Timeout, hibernate} ->
+            State2 = loop_timeout(State),
+            NextState(State2#state{timeout=Timeout, hibernate=true}, DispatchState2, Data);
+        {shutdown, Reason, DispatchState2} ->
+            dispatcher_terminate(State, DispatchState2, undefined, Reason)
+    catch
+        Class:Reason ->
+            error_logger:error_msg(
+                "** ~p ~p terminating in ~p/~p~n"
+                "   for the reason ~p:~p~n** Options were ~p~n"
+                "** Stacktrace: ~p~n~n",
+                [?MODULE, self(), dispatcher_info, 6, Class, Reason, State#state.options, erlang:get_stacktrace()]),
+            dispatcher_terminate(State, DispatchState, undefined, Reason)
     end.
 
-middleware_terminate(Reason, Env, State=#state{middlewares=Middlewares}) ->
-    middleware_terminate(Reason, undefined, Env, State, Middlewares).
-
-middleware_terminate(Reason, Req, Env, State=#state{middlewares=Middlewares}) ->
-    middleware_terminate(Reason, Req, Env, State, Middlewares).
-
-middleware_terminate(Reason, _Req, _Env, State, []) ->
-    terminate(Reason, State);
-middleware_terminate(Reason, Req, Env, State, [Middleware | Tail]) ->
-    Middleware:terminate(Reason, Req, Env),
-    middleware_terminate(Reason, Req, Env, State, Tail).
+dispatcher_terminate(State=#state{dispatch=Dispatch}, DispatchState, Task, TerminateReason) ->
+    try
+        Dispatch:dispatch_terminate(TerminateReason, Task, DispatchState)
+    catch
+        Class:Reason ->
+            error_logger:error_msg(
+                "** ~p ~p terminating in ~p/~p~n"
+                "   for the reason ~p:~p~n** Options were ~p~n"
+                "** Task was ~p~n** Stacktrace: ~p~n~n",
+                [?MODULE, self(), dispatcher_terminate, 4, Class, Reason, State#state.options, Task, erlang:get_stacktrace()]),
+            terminate(Reason, State)
+    end.
 
 loop_timeout(State=#state{timeout=infinity}) ->
     State#state{timeout_ref=undefined};
@@ -157,61 +169,58 @@ loop_timeout(State=#state{timeout=Timeout, timeout_ref=PrevRef}) ->
     TRef = erlang:start_timer(Timeout, self(), ?MODULE),
     State#state{timeout_ref=TRef}.
 
-before_loop(State=#state{hibernate=true, transport=Transport, socket=Socket}, Env, SoFar) ->
+before_loop(State=#state{hibernate=true, transport=Transport, socket=Socket}, DispatchState, SoFar) ->
     Transport:setopts(Socket, [{active, once}]),
-    erlang:hibernate(?MODULE, loop, [State#state{hibernate=false}, Env, SoFar]);
-before_loop(State=#state{transport=Transport, socket=Socket}, Env, SoFar) ->
+    io:format("about to hibernate: ~p~n", [self()]),
+    erlang:hibernate(?MODULE, loop, [State#state{hibernate=false}, DispatchState, SoFar]);
+before_loop(State=#state{transport=Transport, socket=Socket}, DispatchState, SoFar) ->
     Transport:setopts(Socket, [{active, once}]),
-    loop(State, Env, SoFar).
+    loop(State, DispatchState, SoFar).
 
-loop(State=#state{socket=Socket, messages={OK, Closed, Error}, timeout_ref=TRef}, Env, SoFar) ->
+loop(State=#state{socket=Socket, messages={OK, Closed, Error}, timeout_ref=TRef}, DispatchState, SoFar) ->
+    io:format("starting loop: ~p~n", [self()]),
     receive
         {OK, Socket, Data} ->
             State2 = loop_timeout(State),
-            parse_data(State2, Env, << SoFar/binary, Data/binary >>);
+            parse_data(State2, DispatchState, << SoFar/binary, Data/binary >>);
         {Closed, Socket} ->
-            middleware_terminate(State, Env, {error, closed});
+            dispatcher_terminate(State, DispatchState, undefined, {error, closed});
         {Error, Socket, Reason} ->
-            middleware_terminate(State, Env, {error, Reason});
+            dispatcher_terminate(State, DispatchState, undefined, {error, Reason});
         {timeout, TRef, ?MODULE} ->
-            middleware_terminate(State, Env, {normal, timeout});
+            dispatcher_terminate(State, DispatchState, undefined, {normal, timeout});
         {timeout, OlderTRef, ?MODULE} when is_reference(OlderTRef) ->
-            loop(State, Env, SoFar);
+            loop(State, DispatchState, SoFar);
         Message ->
-            middleware_info(State, Env, SoFar, info, Message, fun loop/3)
+            dispatcher_info(State, DispatchState, SoFar, dispatch_info, Message, fun loop/3)
     end.
 
-parse_data(State=#state{transport=Transport, socket=Socket, msgpack_opts=MsgpackOpts}, Env, Data) ->
-    case msgpack:unpack_stream(Data, MsgpackOpts) of
+parse_data(State=#state{transport=Transport, socket=Socket, options=Options=#msgpack_rpc_options{
+        msgpack_unpacker=Unpacker}}, DispatchState, Data) ->
+    case Unpacker(Data) of
         {[?MSGPACK_RPC_REQUEST, MsgId, Method, Params], RemainingData} ->
-            case msgpack_rpc_request:start_fsm(MsgId, Method, Params, Socket, Transport, MsgpackOpts) of
-                {ok, Req} ->
-                    % io:format("Request: ~p~n", [Req]),
-                    middleware_execute(State, Env, RemainingData, request, Req, fun parse_data/3);
+            case msgpack_rpc_task:start_fsm([MsgId, Method, Params, Socket, Transport, Options]) of
+                {ok, Task} ->
+                    io:format("Request: ~p~n", [Task]),
+                    dispatcher_task(State, DispatchState, RemainingData, dispatch_task, Task, fun parse_data/3);
                 {error, Reason} ->
-                    middleware_terminate(Reason, Env, State)
+                    dispatcher_terminate(State, DispatchState, undefined, Reason)
             end;
         {[?MSGPACK_RPC_NOTIFY, Method, Params], RemainingData} ->
-            case msgpack_rpc_notify:start_fsm(Method, Params) of
-                {ok, Req} ->
-                    % io:format("Notify: ~p~n", [Req]),
-                    middleware_execute(State, Env, RemainingData, notify, Req, fun parse_data/3);
+            case msgpack_rpc_task:start_fsm([Method, Params]) of
+                {ok, Task} ->
+                    io:format("Notify: ~p~n", [Task]),
+                    dispatcher_task(State, DispatchState, RemainingData, dispatch_task, Task, fun parse_data/3);
                 {error, Reason} ->
-                    middleware_terminate(Reason, Env, State)
+                    dispatcher_terminate(State, DispatchState, undefined, Reason)
             end;
         {error, incomplete} ->
             %% Need more data.
-            before_loop(State, Env, Data);
+            before_loop(State, DispatchState, Data);
         {error, _} = Error ->
-            middleware_terminate(Error, Env, State)
+            dispatcher_terminate(State, DispatchState, undefined, Error)
     end.
 
 terminate(_TerminateReason, _State=#state{transport=Transport, socket=Socket}) ->
     Transport:close(Socket),
     ok.
-
-known_error_to_binary(undef) -> <<"undef">>;
-known_error_to_binary(function_clause) -> <<"function_clause">>.
-
-binary_to_known_error(<<"undef">>) -> undef;
-binary_to_known_error(<<"function_clause">>) -> function_clause.

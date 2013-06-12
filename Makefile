@@ -1,5 +1,6 @@
 REBAR = $(shell pwd)/rebar
 REBAR_BUILD_DIR = $(shell pwd)/.rebar-build
+TREBAR = $(REBAR) -C rebar.test.config
 
 .PHONY: compile xref eunit clean distclean doc check make deps
 
@@ -37,6 +38,17 @@ check: compile
 crosslang:
 	@echo "do ERL_LIBS=../ before you make crosslang or fail"
 	cd test && make crosslang
+
+test-deps: $(REBAR)
+	@$(TREBAR) update-deps
+	@$(TREBAR) get-deps
+	@$(TREBAR) check-deps
+
+test-compile: test-deps
+	@$(TREBAR) compile
+
+test: clean test-compile
+	@$(TREBAR) skip_deps=true ct
 
 $(REBAR):
 	@rm -rf $(REBAR_BUILD_DIR)

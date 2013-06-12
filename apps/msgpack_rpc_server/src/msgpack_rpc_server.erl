@@ -8,8 +8,7 @@
 -module(msgpack_rpc_server).
 
 %% API.
--export([start_tcp/4,
-         start_ssl/4,
+-export([start_listener/5,
          stop_listener/1]).
 
 %% Stateless API.
@@ -21,21 +20,9 @@
 %% API functions
 %%====================================================================
 
-%% @doc Start a TCP listener.
-% -spec start_tcp(ranch:ref(), non_neg_integer(), ranch_tcp:opts(),
-%     msgpack_rpc_protocol:opts(), module(), any()) -> {ok, pid()}.
-start_tcp(Ref, NbAcceptors, TransOpts, ProtoOpts)
+start_listener(Ref, NbAcceptors, Transport, TransOpts, ProtoOpts)
         when is_integer(NbAcceptors), NbAcceptors > 0 ->
-    ranch:start_listener(Ref, NbAcceptors,
-        ranch_tcp, TransOpts, msgpack_rpc_protocol, ProtoOpts).
-
-%% @doc Start a SSL listener.
-% -spec start_ssl(ranch:ref(), non_neg_integer(), ranch_ssl:opts(),
-%     msgpack_rpc_protocol:opts(), module(), any()) -> {ok, pid()}.
-start_ssl(Ref, NbAcceptors, TransOpts, ProtoOpts)
-        when is_integer(NbAcceptors), NbAcceptors > 0 ->
-    ranch:start_listener(Ref, NbAcceptors,
-        ranch_ssl, TransOpts, msgpack_rpc_protocol, ProtoOpts).
+    ranch:start_listener(Ref, NbAcceptors, Transport, TransOpts, msgpack_rpc_protocol, ProtoOpts).
 
 %% @doc Stop a listener.
 -spec stop_listener(ranch:ref()) -> ok.
@@ -53,13 +40,29 @@ start(Name, Transport, Service, Opts) ->
 
 -spec start(ranch:ref(), non_neg_integer(), tcp | ssl, module(), any())
     -> {ok, pid()}.
-start(Name, NumProc, ssl, Service, Opts) ->
-    % msgpack_rpc_server_sup:start_link(),
-    msgpack_rpc:start_ssl(Name, NumProc, Opts, [{env, [{handler, msgpack_rpc_stateless}, {handler_opts, [{service, Service}]}]}]);
-start(Name, NumProc, tcp, Service, Opts) ->
-    % msgpack_rpc_server_sup:start_link(),
-    msgpack_rpc:start_tcp(Name, NumProc, Opts, [{env, [{handler, msgpack_rpc_stateless}, {handler_opts, [{service, Service}]}]}]).
+start(Name, NumProc, Transport, Service, Opts) ->
+    Transport2 = msgpack_rpc:transport(Transport),
+    start_listener(Name, NumProc, Transport2, Opts,
+        [{handler, msgpack_rpc_stateless},
+         {handler_opts,
+            [{service, Service}]}]).
 
 -spec stop(ranch:ref()) -> ok.
 stop(Name) ->
     stop_listener(Name).
+
+%% Tests.
+
+-ifdef(TEST).
+
+start_stop_test() ->
+    ok = application:start(ranch),
+    ok = application:start(crypto),
+    ok = application:start(msgpack_rpc_server),
+    {ok, _} = msgpack_rpc_server:start(test_msgpack_rpc_server, 3, tcp, dummy, [{port, 9199}]),
+    ok = msgpack_rpc_server:stop(test_msgpack_rpc_server),
+    ok = application:stop(msgpack_rpc_server),
+    ok = application:stop(crypto),
+    ok = application:stop(ranch).
+
+-endif.
