@@ -9,6 +9,7 @@
 -module(msgpack_rpc_protocol).
 -behaviour(ranch_protocol).
 
+-include("msgpack_rpc.hrl").
 -include("msgpack_rpc_server.hrl").
 
 % -ifdef(TEST).

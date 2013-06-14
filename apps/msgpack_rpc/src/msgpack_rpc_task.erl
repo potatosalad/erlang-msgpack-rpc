@@ -9,6 +9,7 @@
 
 -module(msgpack_rpc_task).
 
+-include("msgpack_rpc.hrl").
 -include("msgpack_rpc_server.hrl").
 
 %% API

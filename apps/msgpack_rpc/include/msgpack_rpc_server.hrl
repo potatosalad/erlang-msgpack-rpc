@@ -1,6 +1,3 @@
--include_lib("msgpack_rpc/include/msgpack_rpc.hrl").
--include_lib("msgpack_rpc/include/msgpack_rpc_protocol.hrl").
-
 -record(msgpack_rpc_task, {
     type    = undefined :: undefined | request | notify,
     message = undefined :: undefined | msgpack_rpc:request() | msgpack_rpc:notify(),

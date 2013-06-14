@@ -15,28 +15,37 @@
 %%    See the License for the specific language governing permissions and
 %%    limitations under the License.
 
--ifndef(MP_RPC_HRL).
+-define(MSGPACK_RPC_REQUEST,  0).
+-define(MSGPACK_RPC_RESPONSE, 1).
+-define(MSGPACK_RPC_NOTIFY,   2).
 
--define(MP_TYPE_REQUEST,  0).
--define(MP_TYPE_RESPONSE, 1).
--define(MP_TYPE_NOTIFY, 2).
+-record(msgpack_rpc_request, {
+    msg_id = undefined :: undefined | msgpack_rpc:msg_id(),
+    method = undefined :: undefined | msgpack_rpc:method(),
+    params = undefined :: undefined | msgpack_rpc:params()
+}).
 
--type name() :: atom().
--type global_name() :: term().
+-record(msgpack_rpc_response, {
+    %% Request.
+    request = undefined :: undefined | msgpack_rpc:request(),
 
--type transport() :: tcp | udp. % sctp | snappy | zip | etc...
--type nport() :: (1..65535).
- 
--record(mprc, { s :: inet:socket(),
-		carry = <<>> :: binary(),
-		transport = tcp :: transport(),
-		transport_mod = mprc_tcp :: atom(),
-		host :: inet:ip_address(),
-		port :: nport()
-	      }).
--type mprc() :: #mprc{}.
+    %% Response.
+    msg_id = undefined :: undefined | msgpack_rpc:msg_id(),
+    error  = undefined :: undefined | msgpack_rpc:error(),
+    result = undefined :: undefined | msgpack_rpc:result()
+}).
 
--type server_name() :: {local, name()} | {global, global_name()}.
--type server_ref() :: pid() | name() | { name(), node() } | {global, global_name()}.
+-record(msgpack_rpc_notify, {
+    method = undefined :: undefined | msgpack_rpc:method(),
+    params = undefined :: undefined | msgpack_rpc:params()
+}).
 
--endif.
+-record(msgpack_rpc_options, {
+    %% Errors
+    error_decoder = fun msgpack_rpc:binary_to_known_error/1 :: function(),
+    error_encoder = fun msgpack_rpc:known_error_to_binary/1 :: function(),
+
+    %% msgpack
+    msgpack_packer   = fun msgpack:pack/1          :: function(),
+    msgpack_unpacker = fun msgpack:unpack_stream/1 :: function()
+}).

@@ -10,6 +10,7 @@
 -module(msgpack_rpc_task_fsm).
 -behaviour(gen_fsm).
 
+-include("msgpack_rpc.hrl").
 -include("msgpack_rpc_server.hrl").
 
 %% API

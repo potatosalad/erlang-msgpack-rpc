@@ -22,7 +22,8 @@
 
 start_listener(Ref, NbAcceptors, Transport, TransOpts, ProtoOpts)
         when is_integer(NbAcceptors), NbAcceptors > 0 ->
-    ranch:start_listener(Ref, NbAcceptors, Transport, TransOpts, msgpack_rpc_protocol, ProtoOpts).
+    Transport2 = msgpack_rpc:transport(Transport),
+    ranch:start_listener(Ref, NbAcceptors, Transport2, TransOpts, msgpack_rpc_protocol, ProtoOpts).
 
 %% @doc Stop a listener.
 -spec stop_listener(ranch:ref()) -> ok.
@@ -38,11 +39,10 @@ stop_listener(Ref) ->
 start(Name, Transport, Service, Opts) ->
     start(Name, 4, Transport, Service, Opts).
 
--spec start(ranch:ref(), non_neg_integer(), tcp | ssl, module(), any())
+-spec start(ranch:ref(), non_neg_integer(), tcp | ssl | ranch_tcp | ranch_ssl, module(), any())
     -> {ok, pid()}.
 start(Name, NumProc, Transport, Service, Opts) ->
-    Transport2 = msgpack_rpc:transport(Transport),
-    start_listener(Name, NumProc, Transport2, Opts,
+    start_listener(Name, NumProc, Transport, Opts,
         [{handler, msgpack_rpc_stateless},
          {handler_opts,
             [{service, Service}]}]).
@@ -56,13 +56,13 @@ stop(Name) ->
 -ifdef(TEST).
 
 start_stop_test() ->
-    ok = application:start(ranch),
-    ok = application:start(crypto),
-    ok = application:start(msgpack_rpc_server),
+    application:start(ranch),
+    application:start(crypto),
+    application:start(msgpack_rpc_server),
     {ok, _} = msgpack_rpc_server:start(test_msgpack_rpc_server, 3, tcp, dummy, [{port, 9199}]),
     ok = msgpack_rpc_server:stop(test_msgpack_rpc_server),
-    ok = application:stop(msgpack_rpc_server),
-    ok = application:stop(crypto),
-    ok = application:stop(ranch).
+    application:stop(msgpack_rpc_server),
+    application:stop(crypto),
+    application:stop(ranch).
 
 -endif.

@@ -9,7 +9,6 @@
 -module(msgpack_rpc_response).
 
 -include("msgpack_rpc.hrl").
--include("msgpack_rpc_protocol.hrl").
 
 %% API
 -export([new/4, request/1, msg_id/1, error/1, result/1, to_msgpack_object/1]).

@@ -1,33 +1,46 @@
 REBAR = $(shell pwd)/rebar
 REBAR_BUILD_DIR = $(shell pwd)/.rebar-build
-TREBAR = $(REBAR) -C rebar.test.config
+
+REBAR_TEST ?= 0
+
+V ?= 0
+
+rebar_args_3 = -v 3
+rebar_args_2 = -v 2
+rebar_args_1 = -v 1
+rebar_args = $(rebar_args_$(V))
+
+rebar_verbose_0 = @echo "REBAR";
+rebar_verbose = $(rebar_verbose_$(V))
+
+rebar = $(rebar_verbose) V=$(V) REBAR_TEST=$(REBAR_TEST) $(REBAR) $(rebar_args)
 
 .PHONY: compile xref eunit clean distclean doc check make deps
 
 all: compile xref eunit
 
 deps: $(REBAR)
-	@$(REBAR) update-deps
-	@$(REBAR) get-deps
-	@$(REBAR) check-deps
+	$(rebar) update-deps
+	$(rebar) get-deps
+	$(rebar) check-deps
 
 compile: deps
-	@$(REBAR) compile
+	$(rebar) compile
 
 xref: compile
-	@$(REBAR) xref
+	$(rebar) xref
 
 eunit: compile
-	@$(REBAR) skip_deps=true eunit
+	$(rebar) skip_deps=true eunit
 
 clean:
-	@$(REBAR) clean
+	$(rebar) clean
 
 distclean: clean
-	@$(REBAR) delete-deps
+	$(rebar) delete-deps
 
 doc:
-	@$(REBAR) skip_deps=true doc
+	$(rebar) skip_deps=true doc
 
 check: compile
 #	@echo "you need ./rebar build-plt before make check"
@@ -39,16 +52,19 @@ crosslang:
 	@echo "do ERL_LIBS=../ before you make crosslang or fail"
 	cd test && make crosslang
 
+test-deps: REBAR_TEST=1
 test-deps: $(REBAR)
-	@$(TREBAR) update-deps
-	@$(TREBAR) get-deps
-	@$(TREBAR) check-deps
+	$(rebar) update-deps
+	$(rebar) get-deps
+	$(rebar) check-deps
 
+test-compile: REBAR_TEST=1
 test-compile: test-deps
-	@$(TREBAR) compile
+	$(rebar) compile
 
+test: REBAR_TEST=1
 test: clean test-compile
-	@$(TREBAR) skip_deps=true ct
+	$(rebar) skip_deps=true ct
 
 $(REBAR):
 	@rm -rf $(REBAR_BUILD_DIR)

@@ -9,7 +9,6 @@
 -module(msgpack_rpc_options).
 
 -include("msgpack_rpc.hrl").
--include("msgpack_rpc_protocol.hrl").
 
 %% API
 -export([new/1,

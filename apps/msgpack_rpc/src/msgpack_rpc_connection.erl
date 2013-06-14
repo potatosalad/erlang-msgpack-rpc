@@ -9,11 +9,18 @@
 -module(msgpack_rpc_connection).
 -behaviour(gen_server).
 
+-include("msgpack_rpc.hrl").
 -include("msgpack_rpc_client.hrl").
--include_lib("msgpack_rpc/include/msgpack_rpc_protocol.hrl").
 
 %% API
--export([start_link/4, join/2, notify/3, request/3, stop/1]).
+-export([start_link/3,
+         join/2,
+         join/3,
+         notify/3,
+         notify/4,
+         request/3,
+         request/4,
+         stop/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -49,23 +56,32 @@
 %%% API
 %%%===================================================================
 
--spec start_link(atom(), inet:ip_address() | inet:hostname(), inet:port_number(), any())
+-spec start_link(inet:ip_address() | inet:hostname(), inet:port_number(), any())
     -> {ok, pid()} | ignore | {error, {already_started, pid()} | term()}.
-start_link(Transport, Address, Port, Opts) ->
-    gen_server:start_link(?SERVER, [Transport, Address, Port, Opts], []).
+start_link(Address, Port, Opts) ->
+    gen_server:start_link(?SERVER, [Address, Port, Opts], []).
 
 % -spec join(pid(), msgpack_rpc:request()) -> ok.
 join(Pid, Req) ->
     gen_server:call(Pid, {join, Req}).
 
+join(Pid, Req, Timeout) ->
+    gen_server:call(Pid, {join, Req}, Timeout).
+
 -spec notify(pid(), msgpack_rpc:method(), msgpack_rpc:params()) -> ok.
 notify(Pid, Method, Params) ->
     gen_server:call(Pid, {notify, Method, Params}).
+
+notify(Pid, Method, Params, Timeout) ->
+    gen_server:call(Pid, {notify, Method, Params}, Timeout).
 
 -spec request(pid(), msgpack_rpc:method(), msgpack_rpc:params())
     -> {ok, msgpack_rpc:request()} | {error, any()}.
 request(Pid, Method, Params) ->
     gen_server:call(Pid, {request, Method, Params}).
+
+request(Pid, Method, Params, Timeout) ->
+    gen_server:call(Pid, {request, Method, Params}, Timeout).
 
 -spec stop(pid()) -> ok.
 stop(Pid) ->
@@ -75,9 +91,10 @@ stop(Pid) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Transport, Address, Port, Opts]) ->
-    {ClientOpts, Opts2} = msgpack_rpc:partition_options(Opts, [socket_options]),
+init([Address, Port, Opts]) ->
+    {ClientOpts, Opts2} = msgpack_rpc:partition_options(Opts, [socket_options, transport]),
     SocketOpts = proplists:get_value(socket_options, ClientOpts, []),
+    Transport = msgpack_rpc:transport(proplists:get_value(transport, ClientOpts, ranch_tcp)),
     {ok, Options} = msgpack_rpc_options:from_options(Opts2),
     State = #state{transport=Transport, address=Address, port=Port,
         opts=Opts, messages=Transport:messages(), options=Options,

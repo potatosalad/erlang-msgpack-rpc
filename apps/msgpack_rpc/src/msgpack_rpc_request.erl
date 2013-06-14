@@ -9,7 +9,6 @@
 -module(msgpack_rpc_request).
 
 -include("msgpack_rpc.hrl").
--include("msgpack_rpc_protocol.hrl").
 
 %% API
 -export([new/3, msg_id/1, method/1, params/1, to_msgpack_object/1]).
