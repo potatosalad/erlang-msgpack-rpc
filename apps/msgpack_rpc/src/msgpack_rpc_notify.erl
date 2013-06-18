@@ -11,41 +11,33 @@
 -include("msgpack_rpc.hrl").
 
 %% API
--export([new/2, method/1, params/1, to_msgpack_object/1]).
+-export([new/2, get/2, to_msgpack_object/1]).
 
-%% private API
--export([get/2]).
-
--type req() :: #msgpack_rpc_notify{}.
+-type obj() :: #msgpack_rpc_notify{}.
+-export_type([obj/0]).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
--spec new(msgpack_rpc:method(), msgpack_rpc:params()) -> req().
+-spec new(msgpack_rpc:method(), msgpack_rpc:params()) -> obj().
 new(Method, Params) ->
     #msgpack_rpc_notify{method=Method, params=Params}.
 
-%% @doc Return the msgpack_rpc method of the request.
--spec method(Req) -> {msgpack_rpc:method(), Req} when Req::req().
-method(Req) ->
-    {Req#msgpack_rpc_notify.method, Req}.
+-spec get(list(atom()) | atom(), obj()) -> list(term()) | term().
+get(List, Obj) when is_list(List) ->
+    [g(Atom, Obj) || Atom <- List];
+get(Atom, Obj) when is_atom(Atom) ->
+    g(Atom, Obj).
 
-%% @doc Return the msgpack_rpc params of the request.
--spec params(Req) -> {msgpack_rpc:params(), Req} when Req::req().
-params(Req) ->
-    {Req#msgpack_rpc_notify.params, Req}.
+-spec to_msgpack_object(obj()) -> {ok, msgpack:object()}.
+to_msgpack_object(Obj) ->
+    [?MSGPACK_RPC_NOTIFY | get([method, params], Obj)].
 
-% -spec to_msgpack(msgpack_rpc:notify())
-%     -> [2, msgpack_rpc:method(), msgpack_rpc:params()].
-to_msgpack_object(Req) ->
-    [?MSGPACK_RPC_NOTIFY | get([method, params], Req)].
+%%%-------------------------------------------------------------------
+%%% Internal functions
+%%%-------------------------------------------------------------------
 
 %% @private
-get(List, Req) when is_list(List) ->
-    [g(Atom, Req) || Atom <- List];
-get(Atom, Req) when is_atom(Atom) ->
-    g(Atom, Req).
-
 g(method, #msgpack_rpc_notify{method=Ret}) -> Ret;
 g(params, #msgpack_rpc_notify{params=Ret}) -> Ret.

@@ -22,7 +22,7 @@
 
 start_listener(Ref, NbAcceptors, Transport, TransOpts, ProtoOpts)
         when is_integer(NbAcceptors), NbAcceptors > 0 ->
-    Transport2 = msgpack_rpc:transport(Transport),
+    Transport2 = msgpack_rpc:known_transport(Transport),
     ranch:start_listener(Ref, NbAcceptors, Transport2, TransOpts, msgpack_rpc_protocol, ProtoOpts).
 
 %% @doc Stop a listener.

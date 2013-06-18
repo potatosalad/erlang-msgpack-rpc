@@ -5,6 +5,6 @@
   {registered, []},
   {applications,
    [kernel,
-    stdlib,
-    msgpack_rpc_server]},
+    stdlib]},
+  {mod, {msgpack_rpc_client_app, []}},
   {env, []}]}.

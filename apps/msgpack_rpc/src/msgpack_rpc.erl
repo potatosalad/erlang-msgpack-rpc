@@ -13,17 +13,17 @@
 -include("msgpack_rpc.hrl").
 
 %% API
--export([start_client/4,
+-export([connect/3,
          start_listener/5,
          stop_client/1,
          stop_listener/1]).
 
-%% Utility API
+%% Helpers
 -export([binary_to_known_error/1,
          known_error_to_binary/1,
+         known_transport/1,
          method_to_binary/1,
-         partition_options/2,
-         transport/1]).
+         partition_options/2]).
 
 -type msg_id() :: non_neg_integer().
 -type method() :: binary().
@@ -40,17 +40,25 @@
 -type request()  :: #msgpack_rpc_request{}.
 -type response() :: #msgpack_rpc_response{}.
 -type notify()   :: #msgpack_rpc_notify{}.
--type options()  :: msgpack_rpc_options:obj().
+-type options()  :: #msgpack_rpc_options{}.
 
 -export_type([request/0,
               response/0,
               notify/0,
               options/0]).
 
-%% API
+-type client() :: msgpack_rpc_client:obj().
 
-start_client(Transport, Address, Port, Opts) ->
-    msgpack_rpc_client:start_link(Transport, Address, Port, Opts).
+-export_type([client/0]).
+
+%%%===================================================================
+%%% API functions
+%%%===================================================================
+
+-spec connect(inet:ip_address() | inet:hostname(), inet:port_number(), [proplists:property()])
+    -> {ok, pid()} | ignore | {error, {already_started, pid()} | term()}.
+connect(Address, Port, Opts) ->
+    msgpack_rpc_client:connect(Address, Port, Opts).
 
 start_listener(Ref, NbAcceptors, Transport, TransOpts, ProtoOpts) ->
     msgpack_rpc_server:start_listener(Ref, NbAcceptors, Transport, TransOpts, ProtoOpts).
@@ -65,7 +73,9 @@ stop_client(Ref) ->
 stop_listener(Ref) ->
     msgpack_rpc_server:stop_listener(Ref).
 
-%% Utility API
+%%%===================================================================
+%%% Helpers
+%%%===================================================================
 
 binary_to_known_error(nil) -> nil;
 binary_to_known_error(<<"undef">>) -> undef;
@@ -78,6 +88,15 @@ known_error_to_binary(undef) -> <<"undef">>;
 known_error_to_binary(function_clause) -> <<"function_clause">>;
 known_error_to_binary(_) -> <<"unknown">>.
 
+-spec known_transport(atom()) -> atom().
+known_transport(ssl) ->
+    ranch_ssl;
+known_transport(tcp) ->
+    ranch_tcp;
+known_transport(Transport) when is_atom(Transport) ->
+    Transport.
+
+-spec method_to_binary(atom() | list() | msgpack:object()) -> msgpack:object().
 method_to_binary(Method) when is_atom(Method) ->
     atom_to_binary(Method, latin1);
 method_to_binary(Method) when is_list(Method) ->
@@ -85,18 +104,37 @@ method_to_binary(Method) when is_list(Method) ->
 method_to_binary(Method) ->
     Method.
 
+-spec partition_options([proplists:property()], [atom()]) -> {[proplists:property()], [proplists:property()]}.
 partition_options(Opts, Keys) ->
     {Satisfying, NotSatisfying} = proplists:split(Opts, Keys),
     {lists:flatten(Satisfying), NotSatisfying}.
 
-transport(ssl) ->
-    ranch_ssl;
-transport(tcp) ->
-    ranch_tcp;
-transport(Transport) ->
-    Transport.
-
 -ifdef(TEST).
+
+binary_to_known_error_test() ->
+    nil = binary_to_known_error(nil),
+    undef = binary_to_known_error(<<"undef">>),
+    function_clause = binary_to_known_error(<<"function_clause">>),
+    unknown = binary_to_known_error(<<"unknown">>),
+    {} = binary_to_known_error({}).
+
+known_error_to_binary_test() ->
+    nil = known_error_to_binary(nil),
+    <<"undef">> = known_error_to_binary(undef),
+    <<"function_clause">> = known_error_to_binary(function_clause),
+    <<"unknown">> = known_error_to_binary({}).
+
+known_transport_test() ->
+    ranch_ssl = known_transport(ssl),
+    ranch_ssl = known_transport(ranch_ssl),
+    ranch_tcp = known_transport(tcp),
+    ranch_tcp = known_transport(ranch_tcp),
+    other     = known_transport(other).
+
+method_to_binary_test() ->
+    <<"atom">> = method_to_binary(atom),
+    <<"list">> = method_to_binary("list"),
+    <<"term">> = method_to_binary(<<"term">>).
 
 partition_options_test() ->
     Tests = [
@@ -108,12 +146,5 @@ partition_options_test() ->
         partition_options(Opts, Keys)
     end || {Opts, Keys, Ret} <- Tests],
     ok.
-
-transport_test() ->
-    ranch_ssl = transport(ssl),
-    ranch_ssl = transport(ranch_ssl),
-    ranch_tcp = transport(tcp),
-    ranch_tcp = transport(ranch_tcp),
-    other     = transport(other).
 
 -endif.

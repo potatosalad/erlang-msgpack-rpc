@@ -91,22 +91,6 @@ proper_jsx(Config) ->
 proper_nif(Config) ->
     run_proper(jiffy, lists:keystore(msgpack_type, 1, Config, {msgpack_type, nif})).
 
-% proper_jiffy(Config) ->
-%     Config2 = lists:keystore(msgpack_type, 1, Config, {msgpack_type, jiffy}),
-%     {ok, Client} = test_helper:client_connect(Config2, []),
-%     Config3 = test_helper:set_config(?MODULE, [{client, Client} | Config2]),
-%     [] = proper:module(msgpack_rpc_props),
-%     test_helper:unset_config(Config3),
-%     ok = msgpack_rpc_client:close(Client).
-
-% proper_jsx(Config) ->
-%     Config2 = lists:keystore(msgpack_type, 1, Config, {msgpack_type, jsx}),
-%     {ok, Client} = test_helper:client_connect(Config2, []),
-%     Config3 = test_helper:set_config(?MODULE, [{client, Client} | Config2]),
-%     [] = proper:module(msgpack_rpc_props),
-%     test_helper:unset_config(Config3),
-%     ok = msgpack_rpc_client:close(Client).
-
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------

@@ -45,7 +45,6 @@ new([MsgId, Method, Params, Socket, Transport, Opts]) ->
     Message = msgpack_rpc_request:new(MsgId, Method, Params),
     Task = #msgpack_rpc_task{type=request, message=Message, socket=Socket,
         transport=Transport, options=Opts},
-    io:format("Request Task: ~p~n", [Task]),
     {ok, Task}.
 
 get(List, Task) when is_list(List) ->

@@ -28,7 +28,10 @@ main(_) ->
 %%====================================================================
 
 echo(Message) ->
+    io:format("[echo] ~p~n", [Message]),
     Message.
 
 sum(X, Y) ->
-    X + Y.
+    Sum = X + Y,
+    io:format("[sum] ~p + ~p = ~p~n", [X, Y, Sum]),
+    Sum.

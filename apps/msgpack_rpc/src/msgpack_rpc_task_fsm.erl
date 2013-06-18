@@ -121,10 +121,8 @@ handle_sync_event(_Event, _From, _StateName, StateData) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_info({'DOWN', JobRef, process, JobPid, normal}, StateName, StateData=#state{job_pid=JobPid, job_ref=JobRef}) ->
-    io:format("[~p] INFO: Job completed normally~n", [?MODULE]),
     {next_state, StateName, StateData, 0};
-handle_info(Info, StateName, StateData) ->
-    io:format("[~p] BAD INFO: ~p ~p ~p~n", [?MODULE, Info, StateName, StateData]),
+handle_info(_Info, _StateName, StateData) ->
     {stop, badmsg, StateData}.
 
 %%--------------------------------------------------------------------
@@ -335,13 +333,12 @@ job_runner(#state{task=#msgpack_rpc_task{message=Message, type=request}}, Job, P
 
 prepare_response({error, Error}, State=#state{task=Task=#msgpack_rpc_task{type=request, message=Message,
         options=#msgpack_rpc_options{error_encoder=ErrorEncoder}}}) ->
-    {MsgId, _} = msgpack_rpc_request:msg_id(Message),
-    io:format("ErrorEncoder: ~p~nError: ~p~nVal: ~p~n", [ErrorEncoder, Error, ErrorEncoder(Error)]),
+    MsgId = msgpack_rpc_request:get(msg_id, Message),
     Response = msgpack_rpc_response:new(Message, MsgId, ErrorEncoder(Error), nil),
     process_queue(Response, State#state{task=Task#msgpack_rpc_task{response=Response}});
 prepare_response({result, Result}, State=#state{task=Task=#msgpack_rpc_task{type=request, message=Message,
         options=#msgpack_rpc_options{error_encoder=ErrorEncoder}}}) ->
-    {MsgId, _} = msgpack_rpc_request:msg_id(Message),
+    MsgId = msgpack_rpc_request:get(msg_id, Message),
     Response = msgpack_rpc_response:new(Message, MsgId, ErrorEncoder(nil), Result),
     process_queue(Response, State#state{task=Task#msgpack_rpc_task{response=Response}}).
 
@@ -349,7 +346,6 @@ process_response(State=#state{task=#msgpack_rpc_task{response=Response, socket=S
         transport=Transport, options=#msgpack_rpc_options{msgpack_packer=Packer}}}) ->
     Object = msgpack_rpc_response:to_msgpack_object(Response),
     Packet = Packer(Object),
-    io:format("AFTER RESPONDING: ~p ~p~n", [Response, Packet]),
     Transport:send(Socket, Packet),
     process_queue(Response, State).
 

@@ -44,8 +44,8 @@
 %% ranch_protocol callbacks
 
 %% @doc Start an msgpack_rpc_protocol process.
-% -spec start_link(ranch:ref(), inet:socket(), module(), [any(), module(), any()])
-%     -> {ok, pid()}.
+-spec start_link(ranch:ref(), inet:socket(), module(), [proplists:property()])
+    -> {ok, pid()}.
 start_link(Ref, Socket, Transport, Opts) ->
     ranch:require([ranch, crypto, msgpack_rpc_server]),
     Pid = spawn_link(?MODULE, init, [[Ref, Socket, Transport, Opts]]),
@@ -67,7 +67,7 @@ init([Ref, Socket, Transport, Opts]) ->
     Handler = get_value(handler, ProtoOpts, undefined),
     HandlerOpts = get_value(handler_opts, ProtoOpts, []),
     Timeout = get_value(timeout, ProtoOpts, infinity),
-    {ok, Options} = msgpack_rpc_options:from_options(Opts2),
+    Options = msgpack_rpc_options:new(Opts2),
     ok = ranch:accept_ack(Ref),
     dispatcher_init(#state{socket=Socket, transport=Transport, opts=Opts,
         options=Options, dispatch=Dispatch, timeout=Timeout,
@@ -172,14 +172,12 @@ loop_timeout(State=#state{timeout=Timeout, timeout_ref=PrevRef}) ->
 
 before_loop(State=#state{hibernate=true, transport=Transport, socket=Socket}, DispatchState, SoFar) ->
     Transport:setopts(Socket, [{active, once}]),
-    io:format("about to hibernate: ~p~n", [self()]),
     erlang:hibernate(?MODULE, loop, [State#state{hibernate=false}, DispatchState, SoFar]);
 before_loop(State=#state{transport=Transport, socket=Socket}, DispatchState, SoFar) ->
     Transport:setopts(Socket, [{active, once}]),
     loop(State, DispatchState, SoFar).
 
 loop(State=#state{socket=Socket, messages={OK, Closed, Error}, timeout_ref=TRef}, DispatchState, SoFar) ->
-    io:format("starting loop: ~p~n", [self()]),
     receive
         {OK, Socket, Data} ->
             State2 = loop_timeout(State),
@@ -202,7 +200,6 @@ parse_data(State=#state{transport=Transport, socket=Socket, options=Options=#msg
         {[?MSGPACK_RPC_REQUEST, MsgId, Method, Params], RemainingData} ->
             case msgpack_rpc_task:start_fsm([MsgId, Method, Params, Socket, Transport, Options]) of
                 {ok, Task} ->
-                    io:format("Request: ~p~n", [Task]),
                     dispatcher_task(State, DispatchState, RemainingData, dispatch_task, Task, fun parse_data/3);
                 {error, Reason} ->
                     dispatcher_terminate(State, DispatchState, undefined, Reason)
@@ -210,7 +207,6 @@ parse_data(State=#state{transport=Transport, socket=Socket, options=Options=#msg
         {[?MSGPACK_RPC_NOTIFY, Method, Params], RemainingData} ->
             case msgpack_rpc_task:start_fsm([Method, Params]) of
                 {ok, Task} ->
-                    io:format("Notify: ~p~n", [Task]),
                     dispatcher_task(State, DispatchState, RemainingData, dispatch_task, Task, fun parse_data/3);
                 {error, Reason} ->
                     dispatcher_terminate(State, DispatchState, undefined, Reason)

@@ -15,7 +15,7 @@ rebar_verbose = $(rebar_verbose_$(V))
 
 rebar = $(rebar_verbose) V=$(V) REBAR_TEST=$(REBAR_TEST) $(REBAR) $(rebar_args)
 
-.PHONY: compile xref eunit clean distclean doc check make deps
+.PHONY: compile xref eunit clean distclean doc deps test-deps test-compile test
 
 all: compile xref eunit
 
@@ -41,16 +41,6 @@ distclean: clean
 
 doc:
 	$(rebar) skip_deps=true doc
-
-check: compile
-#	@echo "you need ./rebar build-plt before make check"
-#	@./rebar build-plt
-	@./rebar check-plt
-	@./rebar dialyze
-
-crosslang:
-	@echo "do ERL_LIBS=../ before you make crosslang or fail"
-	cd test && make crosslang
 
 test-deps: REBAR_TEST=1
 test-deps: $(REBAR)
