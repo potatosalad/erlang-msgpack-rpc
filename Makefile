@@ -1,5 +1,5 @@
-REBAR = $(shell pwd)/rebar
-REBAR_BUILD_DIR = $(shell pwd)/.rebar-build
+REBAR := $(shell which rebar 2>&1 >/dev/null; if [ $$? -eq 0 ]; then which rebar; else echo $(shell pwd)/rebar; fi)
+REBAR_BUILD_DIR := $(shell pwd)/.rebar-build
 
 REBAR_TEST ?= 0
 
