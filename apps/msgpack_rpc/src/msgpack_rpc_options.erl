@@ -13,6 +13,9 @@
 %% API
 -export([new/1, get/2]).
 
+%% Internal
+-import(msgpack_rpc_util, [get_value/3]).
+
 -type obj() :: #msgpack_rpc_options{}.
 -export_type([obj/0]).
 
@@ -50,14 +53,6 @@ g(error_decoder, #msgpack_rpc_options{error_decoder=Ret}) -> Ret;
 g(error_encoder, #msgpack_rpc_options{error_encoder=Ret}) -> Ret;
 g(msgpack_packer, #msgpack_rpc_options{msgpack_packer=Ret}) -> Ret;
 g(msgpack_unpacker, #msgpack_rpc_options{msgpack_unpacker=Ret}) -> Ret.
-
-%% @doc Faster alternative to proplists:get_value/3.
-%% @private
-get_value(Key, Opts, Default) ->
-  case lists:keyfind(Key, 1, Opts) of
-    {_, Value} -> Value;
-    _ -> Default
-  end.
 
 %% @private
 merge(List, Opts, Obj) when is_list(List) ->

@@ -21,8 +21,8 @@
 
 %% Internal.
 -export([init/1]).
-% -export([parse_request/2]).
 -export([loop/3]).
+-import(msgpack_rpc_util, [get_value/3]).
 
 -record(state, {
     %% Settings
@@ -41,7 +41,9 @@
     timeout_ref = undefined :: undefined | reference()
 }).
 
-%% ranch_protocol callbacks
+%%%===================================================================
+%%% ranch_protocol callbacks
+%%%===================================================================
 
 %% @doc Start an msgpack_rpc_protocol process.
 -spec start_link(ranch:ref(), inet:socket(), module(), [proplists:property()])
@@ -51,18 +53,12 @@ start_link(Ref, Socket, Transport, Opts) ->
     Pid = spawn_link(?MODULE, init, [[Ref, Socket, Transport, Opts]]),
     {ok, Pid}.
 
-%% Internal.
-
-%% @doc Faster alternative to proplists:get_value/3.
-%% @private
-get_value(Key, Opts, Default) ->
-  case lists:keyfind(Key, 1, Opts) of
-    {_, Value} -> Value;
-    _ -> Default
-  end.
+%%%-------------------------------------------------------------------
+%%% Internal functions
+%%%-------------------------------------------------------------------
 
 init([Ref, Socket, Transport, Opts]) ->
-    {ProtoOpts, Opts2} = msgpack_rpc:partition_options(Opts, [dispatcher, handler, handler_opts, timeout]),
+    {ProtoOpts, Opts2} = msgpack_rpc_util:partition_options(Opts, [dispatcher, handler, handler_opts, timeout]),
     Dispatch = get_value(dispatcher, ProtoOpts, msgpack_rpc_dispatcher),
     Handler = get_value(handler, ProtoOpts, undefined),
     HandlerOpts = get_value(handler_opts, ProtoOpts, []),
@@ -198,14 +194,14 @@ parse_data(State=#state{transport=Transport, socket=Socket, options=Options=#msg
         msgpack_unpacker=Unpacker}}, DispatchState, Data) ->
     case Unpacker(Data) of
         {[?MSGPACK_RPC_REQUEST, MsgId, Method, Params], RemainingData} ->
-            case msgpack_rpc_task:start_fsm([MsgId, Method, Params, Socket, Transport, Options]) of
+            case msgpack_rpc_task:start_fsm({MsgId, Method, Params, Socket, Transport, Options}) of
                 {ok, Task} ->
                     dispatcher_task(State, DispatchState, RemainingData, dispatch_task, Task, fun parse_data/3);
                 {error, Reason} ->
                     dispatcher_terminate(State, DispatchState, undefined, Reason)
             end;
         {[?MSGPACK_RPC_NOTIFY, Method, Params], RemainingData} ->
-            case msgpack_rpc_task:start_fsm([Method, Params]) of
+            case msgpack_rpc_task:start_fsm({Method, Params}) of
                 {ok, Task} ->
                     dispatcher_task(State, DispatchState, RemainingData, dispatch_task, Task, fun parse_data/3);
                 {error, Reason} ->

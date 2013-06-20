@@ -32,12 +32,9 @@
 %% Internal functions
 -export([job_runner/3]).
 
--type job() :: function() | {function(), [any()]} | {module(), atom(), [any()]}.
--export_type([job/0]).
-
 -record(state, {
     task    = undefined :: undefined | msgpack_rpc:task(),
-    job     = undefined :: undefined | job(),
+    job     = undefined :: undefined | msgpack_rpc_task:job(),
     job_pid = undefined :: undefined | pid(),
     job_ref = undefined :: undefined | reference(),
     queue   = undefined :: undefined | queue()
@@ -52,8 +49,8 @@ start_link(Task) ->
 execute(Pid, Job) ->
     gen_fsm:send_event(Pid, {execute, Job}).
 
-respond(Pid, Resp) ->
-    gen_fsm:send_event(Pid, {respond, Resp}).
+respond(Pid, Response) ->
+    gen_fsm:send_event(Pid, {respond, Response}).
 
 shutdown(Pid) ->
     gen_fsm:send_event(Pid, shutdown).
@@ -61,8 +58,8 @@ shutdown(Pid) ->
 sync_execute(Pid, Job) ->
     gen_fsm:sync_send_event(Pid, {execute, Job}).
 
-sync_respond(Pid, Resp) ->
-    gen_fsm:sync_send_event(Pid, {respond, Resp}).
+sync_respond(Pid, Response) ->
+    gen_fsm:sync_send_event(Pid, {respond, Response}).
 
 %%--------------------------------------------------------------------
 %% @private

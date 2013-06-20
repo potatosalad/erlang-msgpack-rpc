@@ -15,7 +15,7 @@
 %% API
 -export([new/1,
          get/2,
-         to_req/1]).
+         to_message/1]).
 
 %% FSM API
 -export([start_fsm/1,
@@ -23,36 +23,48 @@
          respond/2,
          shutdown/1]).
 
--type req() :: {notify | request, msgpack_rpc:method(), msgpack_rpc:params()}.
--export_type([req/0]).
+-type obj()      :: #msgpack_rpc_task{}.
+-type job()      :: function() | {function(), [any()]} | {module(), atom(), [any()]}.
+-type message()  :: {notify | request, msgpack_rpc:method(), msgpack_rpc:params()}.
+-type response() :: {result | error, nil | msgpack:object()}.
 
--type resp() :: {result | error, nil | msgpack:object()}.
--export_type([resp/0]).
+-export_type([obj/0,
+              job/0,
+              message/0,
+              response/0]).
 
 %%====================================================================
 %% API functions
 %%====================================================================
 
-new([Method, Params]) ->
-    new([Method, Params, #msgpack_rpc_options{}]);
-new([Method, Params, Opts]) ->
+-spec new(
+        {msgpack_rpc:method(), msgpack_rpc:params()} |
+        {msgpack_rpc:method(), msgpack_rpc:params(), msgpack_rpc:options()} |
+        {msgpack_rpc:msg_id(), msgpack_rpc:method(), msgpack_rpc:params(), inet:socket(), atom()} |
+        {msgpack_rpc:msg_id(), msgpack_rpc:method(), msgpack_rpc:params(), inet:socket(), atom(), msgpack_rpc:options()})
+    -> {ok, msgpack_rpc:task()}.
+new({Method, Params}) ->
+    new({Method, Params, #msgpack_rpc_options{}});
+new({Method, Params, Opts}) ->
     Message = msgpack_rpc_notify:new(Method, Params),
     Task = #msgpack_rpc_task{type=notify, message=Message, options=Opts},
     {ok, Task};
-new([MsgId, Method, Params, Socket, Transport]) ->
-    new([MsgId, Method, Params, Socket, Transport, #msgpack_rpc_options{}]);
-new([MsgId, Method, Params, Socket, Transport, Opts]) ->
+new({MsgId, Method, Params, Socket, Transport}) ->
+    new({MsgId, Method, Params, Socket, Transport, #msgpack_rpc_options{}});
+new({MsgId, Method, Params, Socket, Transport, Opts}) ->
     Message = msgpack_rpc_request:new(MsgId, Method, Params),
     Task = #msgpack_rpc_task{type=request, message=Message, socket=Socket,
         transport=Transport, options=Opts},
     {ok, Task}.
 
+-spec get(list(atom()) | atom(), obj()) -> list(term()) | term().
 get(List, Task) when is_list(List) ->
     [g(Atom, Task) || Atom <- List];
 get(Atom, Task) when is_atom(Atom) ->
     g(Atom, Task).
 
-to_req(Task) ->
+-spec to_message(obj()) -> message().
+to_message(Task) ->
     [Type, Method, Params] = get([type, message_method, message_params], Task),
     {Type, Method, Params}.
 
@@ -60,16 +72,20 @@ to_req(Task) ->
 %% FSM API functions
 %%====================================================================
 
-start_fsm(Args) ->
+-spec start_fsm(tuple()) -> {ok, msgpack_rpc:task()} | {error, term()}.
+start_fsm(Args) when is_tuple(Args) ->
     {ok, Task} = new(Args),
     start_fsm_(Task).
 
+-spec execute(job(), obj()) -> ok.
 execute(Job, #msgpack_rpc_task{fsm_pid=FsmPid}) when is_pid(FsmPid) ->
     msgpack_rpc_task_fsm:execute(FsmPid, Job).
 
-respond(Resp, #msgpack_rpc_task{fsm_pid=FsmPid}) when is_pid(FsmPid) ->
-    msgpack_rpc_task_fsm:respond(FsmPid, Resp).
+-spec respond(response(), obj()) -> ok.
+respond(Response, #msgpack_rpc_task{fsm_pid=FsmPid}) when is_pid(FsmPid) ->
+    msgpack_rpc_task_fsm:respond(FsmPid, Response).
 
+-spec shutdown(obj()) -> ok.
 shutdown(#msgpack_rpc_task{fsm_pid=FsmPid}) when is_pid(FsmPid) ->
     msgpack_rpc_task_fsm:shutdown(FsmPid).
 

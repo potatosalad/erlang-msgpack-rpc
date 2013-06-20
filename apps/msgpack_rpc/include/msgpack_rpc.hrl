@@ -42,8 +42,8 @@
 
 -record(msgpack_rpc_options, {
     %% Errors
-    error_decoder = fun msgpack_rpc:binary_to_known_error/1 :: function(),
-    error_encoder = fun msgpack_rpc:known_error_to_binary/1 :: function(),
+    error_decoder = fun msgpack_rpc_util:binary_to_known_error/1 :: function(),
+    error_encoder = fun msgpack_rpc_util:known_error_to_binary/1 :: function(),
 
     %% msgpack
     msgpack_packer   = fun msgpack:pack/1          :: function(),

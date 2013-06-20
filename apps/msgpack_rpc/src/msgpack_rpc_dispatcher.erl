@@ -51,8 +51,8 @@ dispatch_init(Type, Handler, HandlerOpts) ->
     handler_init(#state{type=Type, handler=Handler, handler_opts=HandlerOpts}).
 
 dispatch_task(Task, State) ->
-    Req = msgpack_rpc_task:to_req(Task),
-    handler_call(State, msgpack_rpc_handle, Task, Req).
+    Msg = msgpack_rpc_task:to_message(Task),
+    handler_call(State, msgpack_rpc_handle, Task, Msg).
 
 dispatch_info(Info, State) ->
     handler_info(State, msgpack_rpc_info, Info).
@@ -74,8 +74,8 @@ handler_init(State=#state{type=Type, handler=Handler, handler_opts=HandlerOpts})
             {shutdown, Reason, State#state{handler_state=HandlerState}}
     end.
 
-handler_call(State=#state{handler=Handler, handler_opts=_HandlerOpts, handler_state=HandlerState}, Callback, Task, Req) ->
-    case Handler:Callback(Req, Task, HandlerState) of
+handler_call(State=#state{handler=Handler, handler_opts=_HandlerOpts, handler_state=HandlerState}, Callback, Task, Msg) ->
+    case Handler:Callback(Msg, Task, HandlerState) of
         {ok, Task2, HandlerState2} ->
             {ok, Task2, State#state{handler_state=HandlerState2}};
         {ok, Task2, HandlerState2, hibernate} ->

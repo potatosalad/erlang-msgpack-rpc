@@ -15,7 +15,7 @@
     | {ok, State, timeout()}
     | {ok, State, timeout(), hibernate}
     | {shutdown, State}.
--callback msgpack_rpc_handle(Req::msgpack_rpc_task:req(), Task::msgpack_rpc:task(), State::any())
+-callback msgpack_rpc_handle(Req::msgpack_rpc_task:message(), Task::msgpack_rpc:task(), State::any())
     -> {ok, Task, State}
     | {ok, Task, State, hibernate}
     | {ok, Task, State, timeout()}

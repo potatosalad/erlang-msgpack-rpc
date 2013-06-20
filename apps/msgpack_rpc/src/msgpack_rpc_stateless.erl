@@ -19,6 +19,7 @@
 %% Internal functions.
 -export([exec_notify/1,
          exec_request/1]).
+-import(msgpack_rpc_util, [get_value/3]).
 
 -record(state, {
     service = undefined :: undefined | module()
@@ -29,7 +30,7 @@
 %%%===================================================================
 
 msgpack_rpc_init(_Type, Opts) ->
-    case proplists:get_value(service, Opts, undefined) of
+    case get_value(service, Opts, undefined) of
         undefined ->
             erlang:error(no_service_defined);
         Service ->
