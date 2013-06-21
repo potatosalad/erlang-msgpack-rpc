@@ -74,7 +74,7 @@ handler_init(State=#state{type=Type, handler=Handler, handler_opts=HandlerOpts})
             {shutdown, Reason, State#state{handler_state=HandlerState}}
     end.
 
-handler_call(State=#state{handler=Handler, handler_opts=_HandlerOpts, handler_state=HandlerState}, Callback, Task, Msg) ->
+handler_call(State=#state{handler=Handler, handler_opts=_HandlerOpts, handler_state=HandlerState}, Callback, Task, Msg={Type, _, _}) ->
     case Handler:Callback(Msg, Task, HandlerState) of
         {ok, Task2, HandlerState2} ->
             {ok, Task2, State#state{handler_state=HandlerState2}};
@@ -96,16 +96,28 @@ handler_call(State=#state{handler=Handler, handler_opts=_HandlerOpts, handler_st
         {execute, Job, Task2, HandlerState2, Timeout, hibernate} ->
             msgpack_rpc_task:execute(Job, Task2),
             {ok, Task2, State#state{handler_state=HandlerState2}, Timeout, hibernate};
-        {respond, Resp, Task2, HandlerState2} ->
+        {ignore, Task2, HandlerState2} when Type =:= notify ->
+            msgpack_rpc_task:ignore(Task2),
+            {ok, Task2, State#state{handler_state=HandlerState2}};
+        {ignore, Task2, HandlerState2, hibernate} when Type =:= notify ->
+            msgpack_rpc_task:ignore(Task2),
+            {ok, Task2, State#state{handler_state=HandlerState2}, hibernate};
+        {ignore, Task2, HandlerState2, Timeout} when Type =:= notify ->
+            msgpack_rpc_task:ignore(Task2),
+            {ok, Task2, State#state{handler_state=HandlerState2}, Timeout};
+        {ignore, Task2, HandlerState2, Timeout, hibernate} when Type =:= notify ->
+            msgpack_rpc_task:ignore(Task2),
+            {ok, Task2, State#state{handler_state=HandlerState2}, Timeout, hibernate};
+        {respond, Resp, Task2, HandlerState2} when Type =:= request ->
             msgpack_rpc_task:respond(Resp, Task2),
             {ok, Task2, State#state{handler_state=HandlerState2}};
-        {respond, Resp, Task2, HandlerState2, hibernate} ->
+        {respond, Resp, Task2, HandlerState2, hibernate} when Type =:= request ->
             msgpack_rpc_task:respond(Resp, Task2),
             {ok, Task2, State#state{handler_state=HandlerState2}, hibernate};
-        {respond, Resp, Task2, HandlerState2, Timeout} ->
+        {respond, Resp, Task2, HandlerState2, Timeout} when Type =:= request ->
             msgpack_rpc_task:respond(Resp, Task2),
             {ok, Task2, State#state{handler_state=HandlerState2}, Timeout};
-        {respond, Resp, Task2, HandlerState2, Timeout, hibernate} ->
+        {respond, Resp, Task2, HandlerState2, Timeout, hibernate} when Type =:= request ->
             msgpack_rpc_task:respond(Resp, Task2),
             {ok, Task2, State#state{handler_state=HandlerState2}, Timeout, hibernate};
         {shutdown, Reason, Task2, HandlerState2} ->

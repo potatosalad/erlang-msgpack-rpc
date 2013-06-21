@@ -16,7 +16,7 @@ main(_) ->
 
     io:format(" [*] Running at localhost:~p~n", [Port]),
 
-    msgpack_rpc_server:start(msgpack_rpc_simple_service, tcp, simple_service, [{port, Port}]),
+    msgpack_rpc_server:start_service(msgpack_rpc_simple_service, 4, ranch_tcp, simple_service, [{port, Port}]),
     % shell:start(),
 
     receive

@@ -17,6 +17,7 @@
 -export([start/1,
          start_link/1,
          execute/2,
+         ignore/1,
          respond/2,
          shutdown/1,
          sync_execute/2,
@@ -48,6 +49,9 @@ start_link(Task) ->
 
 execute(Pid, Job) ->
     gen_fsm:send_event(Pid, {execute, Job}).
+
+ignore(Pid) ->
+    gen_fsm:send_event(Pid, ignore).
 
 respond(Pid, Response) ->
     gen_fsm:send_event(Pid, {respond, Response}).
@@ -160,6 +164,8 @@ waiting({execute, Job}, State) ->
     State2 = State#state{job=Job},
     {JobPid, JobRef} = spawn_job(Job, State2),
     {next_state, executing, State2#state{job_pid=JobPid, job_ref=JobRef}};
+waiting(ignore, State) ->
+    {next_state, finalized, State, 0};
 waiting({respond, Resp}, State=#state{task=#msgpack_rpc_task{type=request}}) ->
     State2 = prepare_response(Resp, State),
     {next_state, responding, State2, 0};
