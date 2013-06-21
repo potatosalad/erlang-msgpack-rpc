@@ -8,8 +8,8 @@ The [MessagePack RPC Specification](http://wiki.msgpack.org/display/MSGPACK/RPC+
 Getting started
 ---------------
 
-* [Client guide](https://github.com/potatosalad/msgpack-rpc-erlang/blob/guides/client.md)
-* [Server guide](https://github.com/potatosalad/msgpack-rpc-erlang/blob/guides/server.md)
+* [Client guide](https://github.com/potatosalad/msgpack-rpc-erlang/blob/rewrite/guides/client.md)
+* [Server guide](https://github.com/potatosalad/msgpack-rpc-erlang/blob/rewrite/guides/server.md)
 * Look at the examples in the `examples/` directory
 * Build API documentation with `make docs`; open `doc/index.html`
 
