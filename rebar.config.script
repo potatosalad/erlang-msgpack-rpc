@@ -1,6 +1,20 @@
 %% -*- erlang -*-
+CTHelperDep = fun() ->
+    try
+        case crypto:mod_pow(0, 0, 0) of
+            <<1>> ->
+                {git, "git://github.com/potatosalad/ct_helper.git", {branch, "R16B01"}};
+            _ ->
+                erlang:error(undef)
+        end
+    catch
+        _:_ ->
+            {git, "git://github.com/extend/ct_helper.git", {branch, "master"}}
+    end
+end,
+
 TestDeps = [
-    {ct_helper, ".*", {git, "git://github.com/extend/ct_helper.git", {branch, "master"}}},
+    {ct_helper, ".*", CTHelperDep()},
     {proper, ".*", {git, "git://github.com/manopapad/proper.git", {branch, "master"}}}
 ],
 TestErlOpts = [

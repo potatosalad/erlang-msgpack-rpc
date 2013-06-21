@@ -35,7 +35,7 @@ deps: $(REBAR)
 compile: deps
 	$(rebar) compile
 
-clean:
+clean: $(REBAR)
 	$(rebar) clean
 
 distclean: clean

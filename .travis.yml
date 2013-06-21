@@ -1,8 +1,9 @@
 language: erlang
 notifications:
   email: false
-script: "V=1 make test"
+script: "make test"
 otp_release:
   - R16B
+  - R15B03
   - R15B02
   - R15B01
