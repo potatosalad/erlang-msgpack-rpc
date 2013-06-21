@@ -122,7 +122,7 @@ Uses the `timeout` option for the client.
 
 Same as `call/3` with an additional `Timeout` argument.
 
-```
+```erlang
 %% Wait forever for a response, or until connection dies.
 {ok, 123} = msgpack_rpc_client:call(echo, [123], infinity, Client).
 ```
@@ -142,7 +142,7 @@ MsgId = msgpack_rpc_request:get(msg_id, Request).
 
 Same as `call_async/3` with an additional `Timeout` argument.
 
-```
+```erlang
 %% Wait forever until the request can be sent.
 {ok, Request} = msgpack_rpc_client:call_async(echo, [123], infinity, Client).
 ```
@@ -161,7 +161,7 @@ Uses the `timeout` option for the client.
 
 Same as `join/2` with an additional `Timeout` argument.
 
-```
+```erlang
 %% Wait forever for a response, or until the connection dies.
 {ok, 123} = msgpack_rpc_client:join(Request, infinity, Client).
 ```
