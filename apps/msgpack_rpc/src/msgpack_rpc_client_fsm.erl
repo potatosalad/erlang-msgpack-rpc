@@ -135,7 +135,7 @@ request(Pid, {Method, Params, Timeout}) ->
 -spec join(pid(),
         {msgpack_rpc:request()} |
         {msgpack_rpc:request(), timeout()})
-    -> {ok, msgpack_rpc:response()}.
+    -> {ok, msgpack_rpc:response()} | {error, term()}.
 join(Pid, {Req}) ->
     gen_fsm:sync_send_event(Pid, {join, Req});
 join(Pid, {Req, Timeout}) ->
@@ -144,7 +144,7 @@ join(Pid, {Req, Timeout}) ->
 -spec request_join(pid(),
         {msgpack_rpc:method(), msgpack_rpc:params()} |
         {msgpack_rpc:method(), msgpack_rpc:params(), timeout()})
-    -> {ok, msgpack_rpc:request()} | {error, term()}.
+    -> {ok, msgpack_rpc:response()} | {error, term()}.
 request_join(Pid, {Method, Params}) ->
     gen_fsm:sync_send_event(Pid, {request_join, Method, Params});
 request_join(Pid, {Method, Params, Timeout}) ->
@@ -747,7 +747,7 @@ parse_options(Client, OrigOpts) ->
     {FsmOpts, Opts} = msgpack_rpc_util:partition_options(OrigOpts, [
         debug, stats, cache, cache_blocks, cache_capped, cache_limit,
         cache_stops, reconnect, reconnect_limit, reconnect_min,
-        reconnect_max, transport, transport_options]),
+        reconnect_max, transport, transport_opts]),
 
     State = #state{client=Client},
 
@@ -770,7 +770,7 @@ parse_options(Client, OrigOpts) ->
 
     %% Transport Options
     Transport = msgpack_rpc_util:known_transport(get_value(transport, FsmOpts, ranch_tcp)),
-    TransportOpts = get_value(transport_options, FsmOpts, []),
+    TransportOpts = get_value(transport_opts, FsmOpts, []),
 
     State#state{messages=Transport:messages(), options=Options,
         debug=Debug, stats=Stats, cache=Cache, cache_blocks=CacheBlocks,
@@ -850,9 +850,9 @@ format_stats(#state{stat_count=StatCount, stat_time=StatTime}) ->
 %% @private
 inc_stats(_Method, _Op, _Time, State=#state{stats=off}) ->
     State;
-inc_stats(_Method, Op, Time, State=#state{stats=on}) ->
-    inc_stats(undefined, Op, Time, State);
-inc_stats(Method, Op, Time, State=#state{stats=all}) when is_atom(Method), Method =/= undefined ->
+inc_stats(Method, Op, Time, State=#state{stats=on}) when Method =/= none ->
+    inc_stats(none, Op, Time, State);
+inc_stats(Method, Op, Time, State=#state{stats=all}) when is_atom(Method), Method =/= none ->
     inc_stats(atom_to_binary(Method, utf8), Op, Time, State);
 inc_stats(Method, Op, Time, State=#state{stats=all}) when is_list(Method) ->
     inc_stats(list_to_binary(Method), Op, Time, State);
@@ -863,7 +863,7 @@ inc_stats(Method, Op = [Head | Tail], Time, State) when is_list(Op), is_atom(Hea
 inc_stats(Method, Op, Time, State=#state{stats=all}) ->
     Key = <<Method/binary, "_", Op/binary>>,
     increment_stat(Op, Time, increment_stat(Key, Time, State));
-inc_stats(_Method, Op, Time, State=#state{stats=on}) ->
+inc_stats(none, Op, Time, State=#state{stats=on}) ->
     Key = Op,
     increment_stat(Key, Time, State).
 

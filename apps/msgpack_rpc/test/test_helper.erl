@@ -132,7 +132,7 @@ client_connect(Config, Opts) ->
         {undefined, undefined} ->
             [{transport, tcp} | Opts];
         _ ->
-            [{cert, Cert}, {key, Key}, {transport, ssl} | Opts]
+            [{transport, ssl}, {transport_opts, [{cert, Cert}, {key, Key}]} | Opts]
     end,
     Opts3 = case test_helper:msgpack_type(MsgpackType) of
         {Packer, Unpacker} ->

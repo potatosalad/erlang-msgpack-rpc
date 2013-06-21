@@ -1,13 +1,11 @@
 %%%-------------------------------------------------------------------
 %%% @author Andrew Bennett <andrew@pagodabox.com>
 %%% @copyright 2013, Pagoda Box, Inc.
-%%% @doc
+%%% @doc Convenience API to start and stop TCP/SSL clients and listeners.
 %%%
 %%% @end
 %%% Created :  31 May 2013 by Andrew Bennett <andrew@pagodabox.com>
 %%%-------------------------------------------------------------------
-
-%% @doc Convenience API to start and stop TCP/SSL listeners.
 -module(msgpack_rpc).
 
 -include("msgpack_rpc.hrl").
@@ -23,8 +21,8 @@
 -type msg_id() :: non_neg_integer().
 -type method() :: binary() | atom() | list().
 -type params() :: msgpack:object().
--type error()  :: msgpack:object().
--type result() :: msgpack:object().
+-type error()  :: nil | msgpack:object().
+-type result() :: nil | msgpack:object().
 
 -export_type([msg_id/0,
               method/0,
@@ -32,10 +30,10 @@
               error/0,
               result/0]).
 
--type request()  :: #msgpack_rpc_request{}.
--type response() :: #msgpack_rpc_response{}.
--type notify()   :: #msgpack_rpc_notify{}.
--type options()  :: #msgpack_rpc_options{}.
+-type request()  :: msgpack_rpc_request:obj().
+-type response() :: msgpack_rpc_response:obj().
+-type notify()   :: msgpack_rpc_notify:obj().
+-type options()  :: msgpack_rpc_options:obj().
 
 -export_type([request/0,
               response/0,

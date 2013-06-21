@@ -7,4 +7,5 @@ doc
 logs
 .DS_Store
 erl_crash.dump
+/.msgpack_rpc.plt
 /rebar

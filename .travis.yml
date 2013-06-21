@@ -4,5 +4,6 @@ notifications:
 script: "V=1 make test"
 otp_release:
   - R16B
+  - R15B03-1
   - R15B02
   - R15B01
