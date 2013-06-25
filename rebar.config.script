@@ -1,45 +1,20 @@
-%% -*- erlang -*-
-CTHelperDep = fun() ->
-    try
-        case crypto:mod_pow(0, 0, 0) of
-            <<1>> ->
-                {git, "git://github.com/potatosalad/ct_helper.git", {branch, "R16B01"}};
-            _ ->
-                erlang:error(undef)
-        end
-    catch
-        _:_ ->
-            {git, "git://github.com/extend/ct_helper.git", {branch, "master"}}
+ExtraDeps = [
+    {proper, ".*", {git, "git://github.com/manopapad/proper.git", "master"}},
+    case catch crypto:mod_pow(0, 0, 0) of
+        <<1>> ->
+            {ct_helper, ".*", {git, "git://github.com/potatosalad/ct_helper.git", "R16B01"}};
+        _ ->
+            {ct_helper, ".*", {git, "git://github.com/extend/ct_helper.git", "master"}}
     end
-end,
-
-TestDeps = [
-    {ct_helper, ".*", CTHelperDep()},
-    {proper, ".*", {git, "git://github.com/manopapad/proper.git", {branch, "master"}}}
 ],
-TestErlOpts = [
+ErlOpts = [
     {d, 'TEST'},
-    {src_dirs, ["src", "test"]},
-    {parse_transform, eunit_autoexport}
+    {parse_transform, eunit_autoexport},
+    warnings_as_errors,
+    debug_info
 ],
-TestPlugins = [rebar_ct_no_auto_compile_plugin],
 
-DebugMode = case os:getenv("V") of
-    V when V =:= "1"; V =:= "2"; V =:= "3" ->
-        true;
-    _ ->
-        false
-end,
-Debug = fun(Command, Format, Data) ->
-    case DebugMode of
-        true ->
-            io:format("*** rebar.config.script (~p) " ++ Format, [Command] ++ Data);
-        false ->
-            ok
-    end
-end,
-
-PropAdd = fun(Key, Val, Config) ->
+Merge = fun(Key, Val, Config) ->
     case lists:keysearch(Key, 1, Config) of
         {value, {Key, OldVal}} ->
             NewVal = OldVal ++ Val,
@@ -48,39 +23,17 @@ PropAdd = fun(Key, Val, Config) ->
             Config ++ [{Key, Val}]
     end
 end,
-PropMerge = fun(Key, Val, Config) ->
-    case lists:keysearch(Key, 1, Config) of
-        {value, {Key, OldVal}} ->
-            NewVal = lists:foldl(fun
-                ({K, V}, N) ->
-                    PropAdd(K, V, N);
-                (K, N) ->
-                    N ++ [K]
-            end, OldVal, Val),
-            lists:keyreplace(Key, 1, Config, {Key, NewVal});
-        false ->
-            Config ++ [{Key, Val}]
-    end
-end,
 
-Add = fun(Key, Val, Config) ->
-    Debug(add, "~p~n", [{Key, Val}]),
-    PropAdd(Key, Val, Config)
-end,
-Merge = fun(Key, Val, Config) ->
-    Debug(merge, "~p~n", [{Key, Val}]),
-    PropMerge(Key, Val, Config)
-end,
-
-case os:getenv("REBAR_TEST") of
-    "1" ->
-        lists:foldl(fun({Key, Val, Fun}, Config) ->
-            Fun(Key, Val, Config)
-        end, CONFIG, [
-            {deps, TestDeps, Add},
-            {erl_opts, TestErlOpts, Merge},
-            {plugins, TestPlugins, Add}
-        ]);
+case os:getenv("TEST") of
+    false ->
+        CONFIG;
     _ ->
-        CONFIG
+        lists:foldl(fun({Key, Val}, Config) ->
+            Merge(Key, Val, Config)
+        end, CONFIG, [
+            {deps, ExtraDeps},
+            {erl_opts, ErlOpts},
+            {clean_files, ["logs", "test/*.beam"]},
+            {cover_enabled, true}
+        ])
 end.

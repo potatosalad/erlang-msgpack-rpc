@@ -1,7 +1,7 @@
 REBAR := $(shell which rebar 2>&1 >/dev/null; if [ $$? -eq 0 ]; then which rebar; else echo $(shell pwd)/rebar; fi)
 REBAR_BUILD_DIR := $(shell pwd)/.rebar-build
 
-REBAR_TEST ?= 0
+TEST ?= 0
 
 V ?= 0
 
@@ -13,7 +13,7 @@ rebar_args = $(rebar_args_$(V))
 rebar_verbose_0 = @echo ":: REBAR" $(@F);
 rebar_verbose = $(rebar_verbose_$(V))
 
-rebar = $(rebar_verbose) V=$(V) REBAR_TEST=$(REBAR_TEST) $(REBAR) $(rebar_args)
+rebar = $(rebar_verbose) V=$(V) TEST=$(TEST) $(REBAR) $(rebar_args)
 
 DIALYZER ?= dialyzer
 
@@ -22,17 +22,20 @@ dialyzer_verbose = $(dialyzer_verbose_$(V))
 
 dialyzer = $(dialyzer_verbose) $(DIALYZER)
 
-.PHONY: deps compile clean distclean docs build-plt check-plt dialyze \
-	ct eunit test-deps test-compile test xref
+.PHONY: deps compile clean distclean docs xref build-plt check-plt \
+	dialyze ct eunit test-deps test-compile test-build test-clean test
 
-all: test clean compile xref
+all: build
 
 deps: $(REBAR)
 	$(rebar) update-deps
 	$(rebar) get-deps
 	$(rebar) check-deps
 
-compile: deps
+compile: $(REBAR)
+	$(rebar) skip_deps=true compile
+
+build: deps
 	$(rebar) compile
 
 clean: $(REBAR)
@@ -41,21 +44,23 @@ clean: $(REBAR)
 distclean: clean
 	$(rebar) delete-deps
 
-###
-### Docs
-###
+##
+## Docs
+##
 docs: $(REBAR)
 	$(rebar) skip_deps=true doc
 
-###
-### Dialyzer
-###
+xref:
+	$(rebar) xref
+
+##
+## Dialyzer
+##
 PLT ?= .msgpack_rpc.plt
 PLT_DEPS ?= asn1 compiler crypto edoc erts gs hipe inets kernel \
 	observer public_key runtime_tools sasl ssl stdlib syntax_tools \
 	tools webtool xmerl
-PLT_APPS ?= apps/msgpack_rpc apps/msgpack_rpc_client \
-	apps/msgpack_rpc_server
+PLT_APPS ?= msgpack_rpc msgpack_rpc_client apps/msgpack_rpc_server
 DIALYZER_OPTS ?= -Werror_handling -Wno_return -Wrace_conditions \
 	-Wunmatched_returns
 
@@ -68,7 +73,7 @@ check-plt: $(PLT)
 		deps/*/ebin apps/*/ebin
 
 dialyze: $(PLT)
-	$(dialyzer) $(DIALYZER_OPTS) --plt $(PLT) deps/*/ebin apps/*/ebin
+	$(dialyzer) $(DIALYZER_OPTS) --plt $(PLT) deps/*/ebin ebin
 
 $(PLT):
 	$(MAKE) build-plt
@@ -76,35 +81,35 @@ $(PLT):
 ##
 ## Tests
 ##
-ct: REBAR_TEST=1
-ct: clean test-compile
+ct: TEST=1
+ct:
 	$(rebar) skip_deps=true ct
 
-eunit: compile
+eunit: TEST=1
+eunit:
 	$(rebar) skip_deps=true eunit
 
-test-deps: REBAR_TEST=1
-test-deps: $(REBAR)
-	$(rebar) update-deps
-	$(rebar) get-deps
-	$(rebar) check-deps
+test-deps: TEST=1
+test-deps: deps
 
-test-compile: REBAR_TEST=1
-test-compile: test-deps
-	$(rebar) compile
+test-compile: TEST=1
+test-compile: compile
 
-test: REBAR_TEST=1
-test: clean test-compile ct
+test-build: TEST=1
+test-build: build
 
-xref: compile
-	$(rebar) xref
+test-clean: TEST=1
+test-clean: clean
+
+test: TEST=1
+test: clean build ct
 
 ##
 ## rebar
 ##
 $(REBAR):
 	@rm -rf $(REBAR_BUILD_DIR)
-	git clone git://github.com/basho/rebar.git $(REBAR_BUILD_DIR)
+	git clone git://github.com/rebar/rebar.git $(REBAR_BUILD_DIR)
 	cd $(REBAR_BUILD_DIR) && ./bootstrap
 	mv $(REBAR_BUILD_DIR)/rebar $(REBAR)
 	@rm -rf $(REBAR_BUILD_DIR)

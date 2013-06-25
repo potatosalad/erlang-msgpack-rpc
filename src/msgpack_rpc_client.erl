@@ -1,6 +1,8 @@
 %%%-------------------------------------------------------------------
 %%% @author UENISHI Kota <kuenishi@gmail.com>
+%%% @author Andrew Bennett <andrew@pagodabox.com>
 %%% @copyright (C) 2012, UENISHI Kota
+%%%                2013, Pagoda Box, Inc.
 %%% @doc
 %%%
 %%% @end

@@ -1,6 +1,6 @@
 {application, msgpack_rpc,
  [{description, "MessagePack RPC client/server suite"},
-  {vsn, "0.6.2"},
+  {vsn, git},
   {modules, []},
   {registered, []},
   {applications,
