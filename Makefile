@@ -1,6 +1,9 @@
+PROJECT = msgpack_rpc
+
 REBAR := $(shell which rebar 2>&1 >/dev/null; if [ $$? -eq 0 ]; then which rebar; else echo $(shell pwd)/rebar; fi)
 REBAR_BUILD_DIR := $(shell pwd)/.rebar-build
 
+COVERAGE ?= 0
 TEST ?= 0
 
 V ?= 0
@@ -22,10 +25,10 @@ dialyzer_verbose = $(dialyzer_verbose_$(V))
 
 dialyzer = $(dialyzer_verbose) $(DIALYZER)
 
-.PHONY: deps compile clean distclean docs xref build-plt check-plt \
-	dialyze ct eunit test-deps test-compile test-build test-clean test
+.PHONY: deps compile build clean distclean docs xref build-plt \
+	check-plt dialyze
 
-all: build
+all: deps build
 
 deps: $(REBAR)
 	$(rebar) update-deps
@@ -35,7 +38,7 @@ deps: $(REBAR)
 compile: $(REBAR)
 	$(rebar) skip_deps=true compile
 
-build: deps
+build: $(REBAR)
 	$(rebar) compile
 
 clean: $(REBAR)
@@ -56,21 +59,21 @@ xref:
 ##
 ## Dialyzer
 ##
-PLT ?= .msgpack_rpc.plt
+PLT ?= .$(PROJECT).plt
 PLT_DEPS ?= asn1 compiler crypto edoc erts gs hipe inets kernel \
 	observer public_key runtime_tools sasl ssl stdlib syntax_tools \
 	tools webtool xmerl
-PLT_APPS ?= msgpack_rpc msgpack_rpc_client apps/msgpack_rpc_server
+PLT_APPS ?= .
 DIALYZER_OPTS ?= -Werror_handling -Wno_return -Wrace_conditions \
 	-Wunmatched_returns
 
 build-plt: clean compile
 	$(dialyzer) --build_plt --output_plt $(PLT) --apps $(PLT_DEPS) $(PLT_APPS) \
-		deps/*/ebin apps/*/ebin
+		deps/*/ebin ebin
 
 check-plt: $(PLT)
 	$(dialyzer) --check_plt --plt $(PLT) --apps $(PLT_DEPS) $(PLT_APPS) \
-		deps/*/ebin apps/*/ebin
+		deps/*/ebin ebin
 
 dialyze: $(PLT)
 	$(dialyzer) $(DIALYZER_OPTS) --plt $(PLT) deps/*/ebin ebin
@@ -81,6 +84,9 @@ $(PLT):
 ##
 ## Tests
 ##
+coverage: COVERAGE=1
+coverage: test
+
 ct: TEST=1
 ct:
 	$(rebar) skip_deps=true ct
@@ -101,12 +107,13 @@ test-build: build
 test-clean: TEST=1
 test-clean: clean
 
-test: TEST=1
-test: clean build ct
+test: test-deps test-clean test-build ct
 
 ##
 ## rebar
 ##
+rebar: $(REBAR)
+
 $(REBAR):
 	@rm -rf $(REBAR_BUILD_DIR)
 	git clone git://github.com/rebar/rebar.git $(REBAR_BUILD_DIR)

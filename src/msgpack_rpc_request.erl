@@ -11,7 +11,7 @@
 -include("msgpack_rpc.hrl").
 
 %% API
--export([new/3, get/2, to_msgpack_object/1]).
+-export([new/3, get/2, to_msgpack_object/1, to_req/1, from/1]).
 
 -type obj() :: #msgpack_rpc_request{}.
 -export_type([obj/0]).
@@ -31,8 +31,16 @@ get(Atom, Obj) when is_atom(Atom) ->
     g(Atom, Obj).
 
 -spec to_msgpack_object(obj()) -> msgpack:object().
-to_msgpack_object(Obj) ->
-    [?MSGPACK_RPC_REQUEST | get([msg_id, method, params], Obj)].
+to_msgpack_object(#msgpack_rpc_request{msg_id=MsgId, method=Method, params=Params}) ->
+    [?MSGPACK_RPC_REQUEST, MsgId, Method, Params].
+
+-spec to_req(obj()) -> {msgpack_rpc:msg_id(), msgpack_rpc:method(), msgpack_rpc:params()}.
+to_req(#msgpack_rpc_request{msg_id=MsgId, method=Method, params=Params}) ->
+    {MsgId, Method, Params}.
+
+-spec from(obj()) -> {pid(), msgpack_rpc:msg_id()}.
+from(#msgpack_rpc_request{msg_id=MsgId}) ->
+    {self(), MsgId}.
 
 %%%-------------------------------------------------------------------
 %%% Internal functions

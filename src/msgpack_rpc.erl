@@ -16,7 +16,8 @@
 
 %% Server API
 -export([start_listener/5,
-         stop_listener/1]).
+         stop_listener/1,
+         reply/2]).
 
 -type msg_id() :: non_neg_integer().
 -type method() :: binary() | atom() | list().
@@ -41,10 +42,10 @@
               options/0]).
 
 -type client() :: msgpack_rpc_client:obj().
--type task()   :: msgpack_rpc_task:obj().
+-type reply()  :: {error, error()} | {result, result()}.
 
 -export_type([client/0,
-              task/0]).
+              reply/0]).
 
 %%%===================================================================
 %%% Client API functions
@@ -77,3 +78,8 @@ start_listener(Ref, NbAcceptors, Transport, TransOpts, ProtoOpts) ->
 -spec stop_listener(ranch:ref()) -> ok.
 stop_listener(Ref) ->
     msgpack_rpc_server:stop_listener(Ref).
+
+reply({To, MsgId}, {error, Error}) ->
+    catch To ! {'$msgpack_rpc_response', MsgId, Error, nil};
+reply({To, MsgId}, {result, Result}) ->
+    catch To ! {'$msgpack_rpc_response', MsgId, nil, Result}.

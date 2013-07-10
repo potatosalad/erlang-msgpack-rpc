@@ -11,7 +11,7 @@
 -include("msgpack_rpc.hrl").
 
 %% API
--export([new/4, get/2, to_msgpack_object/1]).
+-export([new/3, get/2, to_msgpack_object/2]).
 
 -type obj() :: #msgpack_rpc_response{}.
 -export_type([obj/0]).
@@ -20,9 +20,9 @@
 %%% API
 %%%===================================================================
 
--spec new(msgpack_rpc:request(), msgpack_rpc:msg_id(), msgpack_rpc:error(), msgpack_rpc:result()) -> obj().
-new(Request, MsgId, Error, Result) ->
-    #msgpack_rpc_response{request=Request, msg_id=MsgId, error=Error, result=Result}.
+-spec new(msgpack_rpc:msg_id(), msgpack_rpc:error(), msgpack_rpc:result()) -> obj().
+new(MsgId, Error, Result) ->
+    #msgpack_rpc_response{msg_id=MsgId, error=Error, result=Result}.
 
 -spec get(list(atom()) | atom(), obj()) -> list(term()) | term().
 get(List, Obj) when is_list(List) ->
@@ -30,16 +30,16 @@ get(List, Obj) when is_list(List) ->
 get(Atom, Obj) when is_atom(Atom) ->
     g(Atom, Obj).
 
--spec to_msgpack_object(obj()) -> msgpack:object().
-to_msgpack_object(Obj) ->
-    [?MSGPACK_RPC_RESPONSE | get([msg_id, error, result], Obj)].
+-spec to_msgpack_object(obj(), function()) -> msgpack:object().
+to_msgpack_object(#msgpack_rpc_response{msg_id=MsgId, error=Error, result=Result}, ErrorEncoder) ->
+    Error2 = ErrorEncoder(Error),
+    [?MSGPACK_RPC_RESPONSE, MsgId, Error2, Result].
 
 %%%-------------------------------------------------------------------
 %%% Internal functions
 %%%-------------------------------------------------------------------
 
 %% @private
-g(request, #msgpack_rpc_response{request=Ret}) -> Ret;
 g(msg_id, #msgpack_rpc_response{msg_id=Ret}) -> Ret;
 g(error, #msgpack_rpc_response{error=Ret}) -> Ret;
 g(result, #msgpack_rpc_response{result=Ret}) -> Ret.

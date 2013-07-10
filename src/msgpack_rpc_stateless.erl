@@ -12,14 +12,10 @@
 
 %% msgpack_rpc_handler callbacks
 -export([msgpack_rpc_init/2,
-         msgpack_rpc_handle/3,
+         msgpack_rpc_request/3,
+         msgpack_rpc_notify/2,
          msgpack_rpc_info/2,
          msgpack_rpc_terminate/3]).
-
-%% Internal functions.
--export([exec_notify/1,
-         exec_request/1]).
--import(msgpack_rpc_util, [get_value/3]).
 
 -record(state, {
     service = undefined :: undefined | module()
@@ -30,46 +26,27 @@
 %%%===================================================================
 
 msgpack_rpc_init(_Type, Opts) ->
-    case get_value(service, Opts, undefined) of
+    case msgpack_rpc_util:get_value(service, Opts, undefined) of
         undefined ->
             erlang:error(no_service_defined);
         Service ->
             {ok, #state{service=Service}}
     end.
 
-msgpack_rpc_handle({notify, Method, Params}, Task, State=#state{service=Service}) ->
-    Job = {?MODULE, exec_notify, [Service, Method, Params]},
-    {execute, Job, Task, State};
-msgpack_rpc_handle({request, Method, Params}, Task, State=#state{service=Service}) ->
-    Job = {?MODULE, exec_request, [Service, Method, Params]},
-    {execute, Job, Task, State}.
+msgpack_rpc_request({_MsgId, Method, Params}, From, State=#state{service=Service}) ->
+    supervisor:start_child(msgpack_rpc_stateless_fsm_sup, [Service, Method, Params, From]),
+    {noreply, State}.
+
+msgpack_rpc_notify({Method, Params}, State=#state{service=Service}) ->
+    supervisor:start_child(msgpack_rpc_stateless_fsm_sup, [Service, Method, Params]),
+    {noreply, State}.
 
 msgpack_rpc_info(_Info, State) ->
-    {ok, State}.
+    {noreply, State}.
 
-msgpack_rpc_terminate(_Reason, _Message, _State) ->
+msgpack_rpc_terminate(_Reason, _Req, _State) ->
     ok.
 
 %%%-------------------------------------------------------------------
 %%% Internal functions
 %%%-------------------------------------------------------------------
-
-%% @private
-exec_notify([Service, Method, Params]) ->
-    try binary_to_existing_atom(Method, latin1) of
-        Function ->
-            erlang:apply(Service, Function, Params)
-    catch _:_ ->
-        erlang:error(undef)
-    after
-        ok
-    end.
-
-%% @private
-exec_request([Service, Method, Params]) ->
-    try binary_to_existing_atom(Method, latin1) of
-        Function ->
-            {respond, {result, erlang:apply(Service, Function, Params)}}
-    catch _:_ ->
-        erlang:error(undef)
-    end.

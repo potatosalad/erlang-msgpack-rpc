@@ -27,10 +27,6 @@
 }).
 
 -record(msgpack_rpc_response, {
-    %% Request.
-    request = undefined :: undefined | msgpack_rpc:request(),
-
-    %% Response.
     msg_id = undefined :: undefined | msgpack_rpc:msg_id(),
     error  = undefined :: undefined | msgpack_rpc:error(),
     result = undefined :: undefined | msgpack_rpc:result()

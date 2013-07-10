@@ -11,7 +11,7 @@
 -include("msgpack_rpc.hrl").
 
 %% API
--export([new/2, get/2, to_msgpack_object/1]).
+-export([new/2, get/2, to_msgpack_object/1, to_req/1]).
 
 -type obj() :: #msgpack_rpc_notify{}.
 -export_type([obj/0]).
@@ -31,8 +31,12 @@ get(Atom, Obj) when is_atom(Atom) ->
     g(Atom, Obj).
 
 -spec to_msgpack_object(obj()) -> {ok, msgpack:object()}.
-to_msgpack_object(Obj) ->
-    [?MSGPACK_RPC_NOTIFY | get([method, params], Obj)].
+to_msgpack_object(#msgpack_rpc_notify{method=Method, params=Params}) ->
+    [?MSGPACK_RPC_NOTIFY, Method, Params].
+
+-spec to_req(obj()) -> {msgpack_rpc:method(), msgpack_rpc:params()}.
+to_req(#msgpack_rpc_notify{method=Method, params=Params}) ->
+    {Method, Params}.
 
 %%%-------------------------------------------------------------------
 %%% Internal functions

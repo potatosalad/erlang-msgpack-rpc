@@ -14,10 +14,6 @@
 -include("msgpack_rpc.hrl").
 -include("msgpack_rpc_server.hrl").
 
-% -ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-% -endif.
-
 %% ranch_protocol callbacks
 -export([start_link/4]).
 
@@ -93,30 +89,56 @@ dispatcher_init(State=#state{transport=Transport, dispatch=Dispatch}, Handler, H
             terminate(Reason, undefined)
     end.
 
-dispatcher_task(State=#state{dispatch=Dispatch}, DispatchState, Data, Callback, Task, NextState) ->
-    try Dispatch:Callback(Task, DispatchState) of
-        {ok, _Task2, DispatchState2} ->
+dispatcher_request(State=#state{dispatch=Dispatch}, DispatchState, Data, Callback, Request, NextState) ->
+    try Dispatch:Callback(Request, DispatchState) of
+        {ok, DispatchState2} ->
             State2 = loop_timeout(State),
             NextState(State2, DispatchState2, Data);
-        {ok, _Task2, DispatchState2, hibernate} ->
+        {ok, DispatchState2, hibernate} ->
             State2 = loop_timeout(State),
             NextState(State2#state{hibernate=true}, DispatchState2, Data);
-        {ok, _Task2, DispatchState2, Timeout} ->
+        {ok, DispatchState2, Timeout} ->
             State2 = loop_timeout(State),
             NextState(State2#state{timeout=Timeout}, DispatchState2, Data);
-        {ok, _Task2, DispatchState2, Timeout, hibernate} ->
+        {ok, DispatchState2, Timeout, hibernate} ->
             State2 = loop_timeout(State),
             NextState(State2#state{timeout=Timeout, hibernate=true}, DispatchState2, Data);
-        {shutdown, Reason, Task2, DispatchState2} ->
-            dispatcher_terminate(State, DispatchState2, Task2, Reason)
+        {shutdown, Reason, DispatchState2} ->
+            dispatcher_terminate(State, DispatchState2, Request, Reason)
     catch
         Class:Reason ->
             error_logger:error_msg(
                 "** ~p ~p terminating in ~p/~p~n"
-                "   for the reason ~p:~p~n** Options were ~p~n"
-                "** Stacktrace: ~p~n~n",
-                [?MODULE, self(), dispatcher_task, 6, Class, Reason, State#state.options, erlang:get_stacktrace()]),
-            dispatcher_terminate(State, DispatchState, Task, Reason)
+                "   for the reason ~p:~p~n** Request was ~p~n"
+                "** Options were ~p~n** Stacktrace: ~p~n~n",
+                [?MODULE, self(), dispatcher_request, 6, Class, Reason, Request, State#state.options, erlang:get_stacktrace()]),
+            dispatcher_terminate(State, DispatchState, Request, Reason)
+    end.
+
+dispatcher_notify(State=#state{dispatch=Dispatch}, DispatchState, Data, Callback, Notify, NextState) ->
+    try Dispatch:Callback(Notify, DispatchState) of
+        {ok, DispatchState2} ->
+            State2 = loop_timeout(State),
+            NextState(State2, DispatchState2, Data);
+        {ok, DispatchState2, hibernate} ->
+            State2 = loop_timeout(State),
+            NextState(State2#state{hibernate=true}, DispatchState2, Data);
+        {ok, DispatchState2, Timeout} ->
+            State2 = loop_timeout(State),
+            NextState(State2#state{timeout=Timeout}, DispatchState2, Data);
+        {ok, DispatchState2, Timeout, hibernate} ->
+            State2 = loop_timeout(State),
+            NextState(State2#state{timeout=Timeout, hibernate=true}, DispatchState2, Data);
+        {shutdown, Reason, DispatchState2} ->
+            dispatcher_terminate(State, DispatchState2, Notify, Reason)
+    catch
+        Class:Reason ->
+            error_logger:error_msg(
+                "** ~p ~p terminating in ~p/~p~n"
+                "   for the reason ~p:~p~n** Notify was ~p~n"
+                "** Options were ~p~n** Stacktrace: ~p~n~n",
+                [?MODULE, self(), dispatcher_notify, 6, Class, Reason, Notify, State#state.options, erlang:get_stacktrace()]),
+            dispatcher_terminate(State, DispatchState, Notify, Reason)
     end.
 
 dispatcher_info(State=#state{dispatch=Dispatch}, DispatchState, Data, Callback, Info, NextState) ->
@@ -145,16 +167,16 @@ dispatcher_info(State=#state{dispatch=Dispatch}, DispatchState, Data, Callback, 
             dispatcher_terminate(State, DispatchState, undefined, Reason)
     end.
 
-dispatcher_terminate(State=#state{dispatch=Dispatch}, DispatchState, Task, TerminateReason) ->
+dispatcher_terminate(State=#state{dispatch=Dispatch}, DispatchState, Message, TerminateReason) ->
     try
-        Dispatch:dispatch_terminate(TerminateReason, Task, DispatchState)
+        Dispatch:dispatch_terminate(TerminateReason, Message, DispatchState)
     catch
         Class:Reason ->
             error_logger:error_msg(
                 "** ~p ~p terminating in ~p/~p~n"
                 "   for the reason ~p:~p~n** Options were ~p~n"
-                "** Task was ~p~n** Stacktrace: ~p~n~n",
-                [?MODULE, self(), dispatcher_terminate, 4, Class, Reason, State#state.options, Task, erlang:get_stacktrace()]),
+                "** Message was ~p~n** Stacktrace: ~p~n~n",
+                [?MODULE, self(), dispatcher_terminate, 4, Class, Reason, State#state.options, Message, erlang:get_stacktrace()]),
             terminate(Reason, State)
     end.
 
@@ -188,32 +210,53 @@ loop(State=#state{socket=Socket, messages={OK, Closed, Error}, timeout_ref=TRef}
             dispatcher_terminate(State, DispatchState, undefined, {normal, timeout});
         {timeout, OlderTRef, ?MODULE} when is_reference(OlderTRef) ->
             loop(State, DispatchState, SoFar);
+        {'$msgpack_rpc_response', MsgId, MsgResult, MsgError} ->
+            Response = msgpack_rpc_response:new(MsgId, MsgResult, MsgError),
+            respond(State, DispatchState, SoFar, Response, fun loop/3);
         Message ->
             dispatcher_info(State, DispatchState, SoFar, dispatch_info, Message, fun loop/3)
     end.
 
-parse_data(State=#state{transport=Transport, socket=Socket, options=Options=#msgpack_rpc_options{
-        msgpack_unpacker=Unpacker}}, DispatchState, Data) ->
+parse_data(State=#state{options=#msgpack_rpc_options{msgpack_unpacker=Unpacker}}, DispatchState, Data) ->
     case Unpacker(Data) of
         {[?MSGPACK_RPC_REQUEST, MsgId, Method, Params], RemainingData} ->
-            case msgpack_rpc_task:start_fsm({MsgId, Method, Params, Socket, Transport, Options}) of
-                {ok, Task} ->
-                    dispatcher_task(State, DispatchState, RemainingData, dispatch_task, Task, fun parse_data/3);
-                {error, Reason} ->
-                    dispatcher_terminate(State, DispatchState, undefined, Reason)
-            end;
+            Request = msgpack_rpc_request:new(MsgId, Method, Params),
+            dispatcher_request(State, DispatchState, RemainingData, dispatch_request, Request, fun parse_data/3);
         {[?MSGPACK_RPC_NOTIFY, Method, Params], RemainingData} ->
-            case msgpack_rpc_task:start_fsm({Method, Params}) of
-                {ok, Task} ->
-                    dispatcher_task(State, DispatchState, RemainingData, dispatch_task, Task, fun parse_data/3);
-                {error, Reason} ->
-                    dispatcher_terminate(State, DispatchState, undefined, Reason)
-            end;
+            Notify = msgpack_rpc_notify:new(Method, Params),
+            dispatcher_notify(State, DispatchState, RemainingData, dispatch_notify, Notify, fun parse_data/3);
         {error, incomplete} ->
             %% Need more data.
             before_loop(State, DispatchState, Data);
         {error, _} = Error ->
             dispatcher_terminate(State, DispatchState, undefined, Error)
+    end.
+
+respond(State=#state{transport=Transport, socket=Socket, options=#msgpack_rpc_options{
+        error_encoder=ErrorEncoder, msgpack_packer=Packer}}, DispatchState, Data, Response, NextState) ->
+    try Packer(msgpack_rpc_response:to_msgpack_object(Response, ErrorEncoder)) of
+        Packet when is_binary(Packet) ->
+            case Transport:send(Socket, Packet) of
+                ok ->
+                    State2 = loop_timeout(State),
+                    NextState(State2, DispatchState, Data);
+                {error, SocketReason} ->
+                    dispatcher_terminate(State, DispatchState, undefined, {error, SocketReason})
+            end;
+        {error, MsgpackReason} ->
+            error_logger:warning_msg(
+                "** ~p ~p non-fatal msgpack error in ~p/~p~n"
+                "   for the reason ~p~n",
+                [?MODULE, self(), respond, 5, MsgpackReason]),
+            State2 = loop_timeout(State),
+            NextState(State2, DispatchState, Data)
+    catch
+        Class:Reason ->
+            error_logger:error_msg(
+                "** ~p ~p terminating in ~p/~p~n"
+                "   for the reason ~p:~p~n** Stacktrace: ~p~n~n",
+                [?MODULE, self(), respond, 5, Class, Reason, erlang:get_stacktrace()]),
+            dispatcher_terminate(State, DispatchState, undefined, {error, Reason})
     end.
 
 terminate(_TerminateReason, _State=#state{transport=Transport, socket=Socket}) ->
